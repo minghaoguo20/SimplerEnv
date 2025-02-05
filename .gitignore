@@ -27,3 +27,9 @@ dist/
 .vscode
 
 imgui.ini
+
+# X server
+nohup.out
+
+output
+temp_test
