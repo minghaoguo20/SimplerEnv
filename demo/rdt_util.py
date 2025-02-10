@@ -50,36 +50,6 @@ def obs2pcd(obs, depth_scale=1.0):
     return pcd
 
 
-# def create_point_cloud(depth_image, color_image, depth_scale, intrinsics, use_seg=True, seg=None):
-#     points = []
-#     colors = []
-
-#     height, width = depth_image.shape
-
-#     for v in range(height):
-#         for u in range(width):
-#             z = depth_image[v, u] * depth_scale  # 深度值转换为实际距离
-#             if z <= 0 or depth_image[v, u] > 1.0:  # 过滤无效深度
-#                 continue
-
-#             # 使用语义分割过滤点
-#             if use_seg and seg is not None and seg[v, u] == 0:
-#                 continue
-
-#             # 计算3D点坐标
-#             x = (u - intrinsics["ppx"]) * z / intrinsics["fx"]
-#             y = (v - intrinsics["ppy"]) * z / intrinsics["fy"]
-
-#             points.append([x, y, z])
-#             colors.append(color_image[v, u] / 255.0)  # 颜色归一化
-
-#     # 转换为 NumPy 数组
-#     points = np.array(points, dtype=np.float32)  # (N, 3)
-#     colors = np.array(colors, dtype=np.float32)  # (N, 3)
-
-#     return points, colors
-
-
 def create_point_cloud(depth_image, color_image, depth_scale, intrinsics, use_seg=True, seg=None):
     points = []
     colors = []
@@ -126,7 +96,37 @@ def create_point_cloud(depth_image, color_image, depth_scale, intrinsics, use_se
     return points, colors
 
 
-def image2depth_api(image, temp_path="/home/xurongtao/minghao/SimplerEnv/demo/temp.jpg"):
+# def create_point_cloud(depth_image, color_image, depth_scale, intrinsics, use_seg=True, seg=None):
+#     points = []
+#     colors = []
+
+#     height, width = depth_image.shape
+
+#     for v in range(height):
+#         for u in range(width):
+#             z = depth_image[v, u] * depth_scale  # 深度值转换为实际距离
+#             if z <= 0 or depth_image[v, u] > 1.0:  # 过滤无效深度
+#                 continue
+
+#             # 使用语义分割过滤点
+#             if use_seg and seg is not None and seg[v, u] == 0:
+#                 continue
+
+#             # 计算3D点坐标
+#             x = (u - intrinsics["ppx"]) * z / intrinsics["fx"]
+#             y = (v - intrinsics["ppy"]) * z / intrinsics["fy"]
+
+#             points.append([x, y, z])
+#             colors.append(color_image[v, u] / 255.0)  # 颜色归一化
+
+#     # 转换为 NumPy 数组
+#     points = np.array(points, dtype=np.float32)  # (N, 3)
+#     colors = np.array(colors, dtype=np.float32)  # (N, 3)
+
+#     return points, colors
+
+
+def image2depth_api(image, port=5000, temp_path="/home/xurongtao/minghao/SimplerEnv/demo/temp.jpg"):
     """
     Sends an image to the Flask server and retrieves the depth image as a NumPy array.
 
@@ -151,7 +151,7 @@ def image2depth_api(image, temp_path="/home/xurongtao/minghao/SimplerEnv/demo/te
         return None
 
     # Define the Flask API URL
-    url = "http://localhost:5000/get_depth"
+    url = f"http://localhost:{port}/get_depth"
 
     # Create the JSON payload
     payload = {"img_path": img_path}
@@ -185,10 +185,11 @@ def image2depth_api(image, temp_path="/home/xurongtao/minghao/SimplerEnv/demo/te
 def rdt_api(
     cuda_idx="7", instruction=None, image_path=None, image_previous_path=None, depth_path=None, depth_previous_path=None
 ):
-    # 设定CUDA_VISIBLE_DEVICES
-    env_vars = {"CUDA_VISIBLE_DEVICES": cuda_idx}
+    # 设定 CUDA_VISIBLE_DEVICES
+    env_vars = os.environ.copy()  # 复制当前环境变量
+    env_vars["CUDA_VISIBLE_DEVICES"] = cuda_idx  # 设置新 GPU 设备
 
-    # 指定 env2 的 Python 解释器路径
+    # 指定 Python 解释器路径
     python_env2 = "/home/xurongtao/miniconda3/envs/rdt/bin/python"
 
     # 指定要运行的 Python 模块
@@ -197,27 +198,74 @@ def rdt_api(
         "-m",
         "scripts.afford_inference_demo_env",
         "--instruction",
-        instruction,  # "open the door of the cabinet",  # 指令
+        instruction,
         "--image_path",
-        image_path,  # "/mnt/data/Datasets/HOI4D_release/ZY20210800004/H4/C4/N42/S260/s01/T2/align_rgb/00011.jpg",  # 图像路径
+        image_path,
         "--image_previous_path",
-        image_previous_path,  # "/mnt/data/Datasets/HOI4D_release/ZY20210800004/H4/C4/N42/S260/s01/T2/align_rgb/00010.jpg",  # 前一帧图像路径
+        image_previous_path,
         "--depth_path",
-        depth_path,  # "/mnt/data/Datasets/HOI4D_depth_video/ZY20210800004/H4/C4/N42/S260/s01/T2/align_depth/00011.png",  # 深度图路径
+        depth_path,
         "--depth_previous_path",
-        depth_previous_path,  # "/mnt/data/Datasets/HOI4D_depth_video/ZY20210800004/H4/C4/N42/S260/s01/T2/align_depth/00010.png",  # 前一帧深度图路径
+        depth_previous_path,
         "--pretrained_model_name_or_path",
-        "/mnt/data/xurongtao/checkpoints/rdt-finetune-1b-afford_real_qwen/checkpoint-84000/",  # 模型权重路径
+        "/mnt/data/xurongtao/checkpoints/rdt-finetune-1b-afford_real_qwen/checkpoint-84000/",
     ]
 
     # 指定工作目录
     work_dir = "/home/xurongtao/jianzhang/Afford-RDT-deploy"
 
+    # 打印调试信息
+    print(f"Running command: {' '.join(cmd)}")
+    print(f"CUDA_VISIBLE_DEVICES in subprocess: {env_vars['CUDA_VISIBLE_DEVICES']}")
+
     # 运行命令
     result = subprocess.run(
-        cmd, cwd=work_dir, env={**env_vars, **dict(subprocess.os.environ)}, capture_output=True, text=True
+        cmd, cwd=work_dir, env=env_vars, capture_output=True, text=True
     )
+
+    # 打印输出，方便调试
+    print("STDOUT:", result.stdout)
+    print("STDERR:", result.stderr)
+
     return result
+
+
+# def rdt_api(
+#     cuda_idx="7", instruction=None, image_path=None, image_previous_path=None, depth_path=None, depth_previous_path=None
+# ):
+#     # 设定CUDA_VISIBLE_DEVICES
+#     env_vars = {"CUDA_VISIBLE_DEVICES": cuda_idx}
+
+#     # 指定 env2 的 Python 解释器路径
+#     python_env2 = "/home/xurongtao/miniconda3/envs/rdt/bin/python"
+
+#     # 指定要运行的 Python 模块
+#     cmd = [
+#         python_env2,
+#         "-m",
+#         "scripts.afford_inference_demo_env",
+#         "--instruction",
+#         instruction,  # "open the door of the cabinet",  # 指令
+#         "--image_path",
+#         image_path,  # "/mnt/data/Datasets/HOI4D_release/ZY20210800004/H4/C4/N42/S260/s01/T2/align_rgb/00011.jpg",  # 图像路径
+#         "--image_previous_path",
+#         image_previous_path,  # "/mnt/data/Datasets/HOI4D_release/ZY20210800004/H4/C4/N42/S260/s01/T2/align_rgb/00010.jpg",  # 前一帧图像路径
+#         "--depth_path",
+#         depth_path,  # "/mnt/data/Datasets/HOI4D_depth_video/ZY20210800004/H4/C4/N42/S260/s01/T2/align_depth/00011.png",  # 深度图路径
+#         "--depth_previous_path",
+#         depth_previous_path,  # "/mnt/data/Datasets/HOI4D_depth_video/ZY20210800004/H4/C4/N42/S260/s01/T2/align_depth/00010.png",  # 前一帧深度图路径
+#         "--pretrained_model_name_or_path",
+#         "/mnt/data/xurongtao/checkpoints/rdt-finetune-1b-afford_real_qwen/checkpoint-84000/",  # 模型权重路径
+#     ]
+
+#     # 指定工作目录
+#     work_dir = "/home/xurongtao/jianzhang/Afford-RDT-deploy"
+
+#     # 运行命令
+#     result = subprocess.run(
+#         cmd, cwd=work_dir, env={**env_vars, **dict(subprocess.os.environ)}, capture_output=True, text=True
+#     )
+#     return result
 
 
 def save_images_temp(image_list, save_dir):
@@ -254,3 +302,19 @@ def save_images_temp(image_list, save_dir):
         image_paths.append(os.path.abspath(img_path))
 
     return image_paths
+
+def ram_api(rgb, pcd, pcd_temp_file, contact_point, post_contact_dir):
+    ram_url = "http://127.0.0.1:5000/lift_affordance"
+    
+    o3d.io.write_point_cloud(pcd_temp_file, pcd)
+
+    data = {
+        "rgb": rgb.tolist(),
+        "pcd": pcd_temp_file,
+        "contact_point": contact_point,
+        "post_contact_dir": post_contact_dir,
+    }
+
+    response = requests.post(ram_url, json=data)
+    
+    return response

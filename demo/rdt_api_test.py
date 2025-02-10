@@ -8,9 +8,6 @@ import subprocess
 import ast
 from debug_util import setup_debugger
 
-if __name__ == "__main__":
-    setup_debugger(ip_addr="127.0.0.1", port=9501, debug=False)
-
 def rdt_api(cuda_idx="7"):
     # 设定CUDA_VISIBLE_DEVICES
     env_vars = {"CUDA_VISIBLE_DEVICES": cuda_idx}
@@ -20,6 +17,7 @@ def rdt_api(cuda_idx="7"):
 
     # 指定要运行的 Python 模块
     cmd = [
+        f"CUDA_VISIBLE_DEVICES={cuda_idx}",
         python_env2,
         "-m",
         "scripts.afford_inference_demo_env",
@@ -45,6 +43,7 @@ def rdt_api(cuda_idx="7"):
         cmd, cwd=work_dir, env={**env_vars, **dict(subprocess.os.environ)}, capture_output=True, text=True
     )
     return result
+
 
 result = rdt_api()
 
