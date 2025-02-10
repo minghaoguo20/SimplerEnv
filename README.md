@@ -97,6 +97,10 @@ cd {this_repo}
 pip install -e .
 ```
 
+```
+pip install open3d
+```
+
 **If you'd like to perform evaluations on our provided agents (e.g., RT-1, Octo), or add new robots and environments, please additionally follow the full installation instructions [here](#full-installation-rt-1-and-octo-inference-env-building).**
 
 
