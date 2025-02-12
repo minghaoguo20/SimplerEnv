@@ -18,7 +18,7 @@ def create_o3d_point_cloud(points, colors):
     return pcd
 
 
-def obs2pcd(obs, depth_scale=1.0):
+def obs2pcd(obs, depth_scale=1.0, camera="overhead_camera"):
     """
     Extracts point cloud (pcd) from the observation dictionary.
 
@@ -30,10 +30,12 @@ def obs2pcd(obs, depth_scale=1.0):
     """
     import numpy as np
 
-    rgb = obs["image"]["base_camera"]["rgb"]
-    depth = obs["image"]["base_camera"]["depth"]
-    seg = obs["image"]["base_camera"]["Segmentation"][..., 0]  # Extract segmentation mask
-    intrinsic_matrix = obs["camera_param"]["base_camera"]["intrinsic_cv"]
+    rgb = obs["image"]["overhead_camera"]["rgb"]
+    rgb = np.array(Image.fromarray(rgb).resize((640, 480)))
+    depth = obs["image"]["overhead_camera"]["depth"]
+    depth = np.array(Image.fromarray(depth.squeeze()).resize((640, 480)))
+    seg = obs["image"]["overhead_camera"]["Segmentation"][..., 0]  # Extract segmentation mask
+    intrinsic_matrix = obs["camera_param"]["overhead_camera"]["intrinsic_cv"]
 
     intrinsics_dict = {
         "fx": intrinsic_matrix[0, 0],
@@ -43,7 +45,7 @@ def obs2pcd(obs, depth_scale=1.0):
     }
 
     points, colors = create_point_cloud(
-        depth_image=depth, color_image=rgb, depth_scale=depth_scale, intrinsics=intrinsics_dict, seg=seg
+        depth_image=depth, color_image=rgb, depth_scale=depth_scale, intrinsics=intrinsics_dict, use_seg=False, seg=seg
     )
 
     pcd = create_o3d_point_cloud(points, colors)
@@ -219,9 +221,7 @@ def rdt_api(
     print(f"CUDA_VISIBLE_DEVICES in subprocess: {env_vars['CUDA_VISIBLE_DEVICES']}")
 
     # 运行命令
-    result = subprocess.run(
-        cmd, cwd=work_dir, env=env_vars, capture_output=True, text=True
-    )
+    result = subprocess.run(cmd, cwd=work_dir, env=env_vars, capture_output=True, text=True)
 
     # 打印输出，方便调试
     print("STDOUT:", result.stdout)
@@ -303,9 +303,10 @@ def save_images_temp(image_list, save_dir):
 
     return image_paths
 
-def ram_api(rgb, pcd, pcd_temp_file, contact_point, post_contact_dir):
-    ram_url = "http://127.0.0.1:5000/lift_affordance"
-    
+
+def ram_api(rgb, pcd, pcd_temp_file, contact_point, post_contact_dir, ram_url_port=5002):
+    ram_url = f"http://127.0.0.1:{ram_url_port}/lift_affordance"
+
     o3d.io.write_point_cloud(pcd_temp_file, pcd)
 
     data = {
@@ -316,5 +317,13 @@ def ram_api(rgb, pcd, pcd_temp_file, contact_point, post_contact_dir):
     }
 
     response = requests.post(ram_url, json=data)
-    
-    return response
+
+    if response.status_code == 200:
+        result = response.json()
+        if len(result) == 1 and "error" in result:
+            print(f"Error: {result['error']}")
+            return None
+        return result
+    else:
+        print(f"Error {response.status_code}: {response.text}")
+        return None
