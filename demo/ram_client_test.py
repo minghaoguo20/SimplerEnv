@@ -2,35 +2,52 @@ from debug_util import setup_debugger
 
 if __name__ == "__main__":
     setup_debugger(ip_addr="127.0.0.1", port=9501, debug=False)
-
+import os
+import json
+import random
 import requests
+import cv2
 import numpy as np
-import open3d as o3d
+
+# API URL
+API_URL = "http://127.0.0.1:5003/infer"
+
+# Temporary data directory
+TEMP_DIR = "/home/xurongtao/minghao/SimplerEnv/temp_test/data_temp"
+os.makedirs(TEMP_DIR, exist_ok=True)
 
 
-def generate_random_pcd(num_points=10000, point_range=1.0):
-    points = np.random.uniform(-point_range, point_range, size=(num_points, 3))  # Random 3D points
-    colors = np.random.rand(num_points, 3)  # Random RGB colors (normalized to [0,1])
-
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(points)
-    pcd.colors = o3d.utility.Vector3dVector(colors)
-
-    return pcd
+# Generate random image and depth data
+def generate_random_image(path, width=640, height=512):
+    image = np.random.randint(0, 256, (height, width, 3), dtype=np.uint8)
+    cv2.imwrite(path, image)
 
 
-# Generate a random point cloud
-test_pcd = generate_random_pcd()
+# Generate test files
+image_path = os.path.join(TEMP_DIR, "image.jpg")
+image_previous_path = os.path.join(TEMP_DIR, "image_previous.jpg")
+depth_path = os.path.join(TEMP_DIR, "depth.png")
+depth_previous_path = os.path.join(TEMP_DIR, "depth_previous.png")
 
-ram_url = "http://127.0.0.1:5000/lift_affordance"
+generate_random_image(image_path)
+generate_random_image(image_previous_path)
+generate_random_image(depth_path)
+generate_random_image(depth_previous_path)
 
-data = {
-    "rgb": np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8).tolist(),
-    "pcd": "/home/xurongtao/minghao/SimplerEnv/demo/temp_save/point_cloud_temp.pcd",
-    "contact_point": [289, 377],
-    "post_contact_dir": [2, 5],
+# Create test payload
+payload = {
+    "instruction": "open the door",
+    "image_path": image_path,
+    "image_previous_path": image_previous_path,
+    "depth_path": depth_path,
+    "depth_previous_path": depth_previous_path,
 }
 
-response = requests.post(ram_url, json=data)
+# Send request
+response = requests.post(API_URL, json=payload)
 
-print(response.json())
+# Print response
+if response.status_code == 200:
+    print("Inference Result:", response.json())
+else:
+    print("Error:", response.status_code, response.text)

@@ -98,37 +98,7 @@ def create_point_cloud(depth_image, color_image, depth_scale, intrinsics, use_se
     return points, colors
 
 
-# def create_point_cloud(depth_image, color_image, depth_scale, intrinsics, use_seg=True, seg=None):
-#     points = []
-#     colors = []
-
-#     height, width = depth_image.shape
-
-#     for v in range(height):
-#         for u in range(width):
-#             z = depth_image[v, u] * depth_scale  # 深度值转换为实际距离
-#             if z <= 0 or depth_image[v, u] > 1.0:  # 过滤无效深度
-#                 continue
-
-#             # 使用语义分割过滤点
-#             if use_seg and seg is not None and seg[v, u] == 0:
-#                 continue
-
-#             # 计算3D点坐标
-#             x = (u - intrinsics["ppx"]) * z / intrinsics["fx"]
-#             y = (v - intrinsics["ppy"]) * z / intrinsics["fy"]
-
-#             points.append([x, y, z])
-#             colors.append(color_image[v, u] / 255.0)  # 颜色归一化
-
-#     # 转换为 NumPy 数组
-#     points = np.array(points, dtype=np.float32)  # (N, 3)
-#     colors = np.array(colors, dtype=np.float32)  # (N, 3)
-
-#     return points, colors
-
-
-def image2depth_api(image, port=5000, temp_path="/home/xurongtao/minghao/SimplerEnv/demo/temp.jpg"):
+def image2depth_api(image, port=5001, temp_path="/home/xurongtao/minghao/SimplerEnv/demo/temp.jpg"):
     """
     Sends an image to the Flask server and retrieves the depth image as a NumPy array.
 
@@ -184,9 +154,23 @@ def image2depth_api(image, port=5000, temp_path="/home/xurongtao/minghao/Simpler
         return None
 
 
-def rdt_api(
+def rdt_cmd(
     cuda_idx="7", instruction=None, image_path=None, image_previous_path=None, depth_path=None, depth_previous_path=None
 ):
+    """
+    client demo:
+    ```
+    rdt_result = rdt_cmd(
+        cuda_idx=args.rdt_cuda,
+        instruction=instruction,
+        image_path=paths[0],
+        image_previous_path=paths[1],
+        depth_path=paths[2],
+        depth_previous_path=paths[3],
+    )
+    rdt_result = ast.literal_eval(rdt_result.stdout)
+    ````
+    """
     # 设定 CUDA_VISIBLE_DEVICES
     env_vars = os.environ.copy()  # 复制当前环境变量
     env_vars["CUDA_VISIBLE_DEVICES"] = cuda_idx  # 设置新 GPU 设备
@@ -198,7 +182,7 @@ def rdt_api(
     cmd = [
         python_env2,
         "-m",
-        "scripts.afford_inference_demo_env",
+        "scripts.afford_inference_demo_env_minghao",
         "--instruction",
         instruction,
         "--image_path",
@@ -230,45 +214,7 @@ def rdt_api(
     return result
 
 
-# def rdt_api(
-#     cuda_idx="7", instruction=None, image_path=None, image_previous_path=None, depth_path=None, depth_previous_path=None
-# ):
-#     # 设定CUDA_VISIBLE_DEVICES
-#     env_vars = {"CUDA_VISIBLE_DEVICES": cuda_idx}
-
-#     # 指定 env2 的 Python 解释器路径
-#     python_env2 = "/home/xurongtao/miniconda3/envs/rdt/bin/python"
-
-#     # 指定要运行的 Python 模块
-#     cmd = [
-#         python_env2,
-#         "-m",
-#         "scripts.afford_inference_demo_env",
-#         "--instruction",
-#         instruction,  # "open the door of the cabinet",  # 指令
-#         "--image_path",
-#         image_path,  # "/mnt/data/Datasets/HOI4D_release/ZY20210800004/H4/C4/N42/S260/s01/T2/align_rgb/00011.jpg",  # 图像路径
-#         "--image_previous_path",
-#         image_previous_path,  # "/mnt/data/Datasets/HOI4D_release/ZY20210800004/H4/C4/N42/S260/s01/T2/align_rgb/00010.jpg",  # 前一帧图像路径
-#         "--depth_path",
-#         depth_path,  # "/mnt/data/Datasets/HOI4D_depth_video/ZY20210800004/H4/C4/N42/S260/s01/T2/align_depth/00011.png",  # 深度图路径
-#         "--depth_previous_path",
-#         depth_previous_path,  # "/mnt/data/Datasets/HOI4D_depth_video/ZY20210800004/H4/C4/N42/S260/s01/T2/align_depth/00010.png",  # 前一帧深度图路径
-#         "--pretrained_model_name_or_path",
-#         "/mnt/data/xurongtao/checkpoints/rdt-finetune-1b-afford_real_qwen/checkpoint-84000/",  # 模型权重路径
-#     ]
-
-#     # 指定工作目录
-#     work_dir = "/home/xurongtao/jianzhang/Afford-RDT-deploy"
-
-#     # 运行命令
-#     result = subprocess.run(
-#         cmd, cwd=work_dir, env={**env_vars, **dict(subprocess.os.environ)}, capture_output=True, text=True
-#     )
-#     return result
-
-
-def save_images_temp(image_list, save_dir):
+def save_images_temp(image_list):
     """
     Save a list of images (NumPy arrays or PyTorch tensors) to a given directory temporarily.
 
@@ -279,9 +225,6 @@ def save_images_temp(image_list, save_dir):
     Returns:
         list: List of absolute file paths of the saved images.
     """
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-
     image_paths = []
 
     for idx, img in enumerate(image_list):
@@ -294,7 +237,7 @@ def save_images_temp(image_list, save_dir):
         if img.ndim == 3 and img.shape[0] in [1, 3]:
             img = np.transpose(img, (1, 2, 0))  # Convert CHW to HWC if necessary
 
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png", dir=save_dir)
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
         img_path = temp_file.name
         temp_file.close()
 
@@ -304,19 +247,27 @@ def save_images_temp(image_list, save_dir):
     return image_paths
 
 
-def ram_api(rgb, pcd, pcd_temp_file, contact_point, post_contact_dir, ram_url_port=5002):
-    ram_url = f"http://127.0.0.1:{ram_url_port}/lift_affordance"
+def ram_api(rgb, pcd, contact_point, post_contact_dir, ram_url = f"http://210.45.70.21:20606/lift_affordance"):
+    # ram_url = f"http://127.0.0.1:5002/lift_affordance"
 
-    o3d.io.write_point_cloud(pcd_temp_file, pcd)
+    # 使用临时文件存储 PCD
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pcd") as temp_pcd:
+        pcd_temp_path = temp_pcd.name
+        o3d.io.write_point_cloud(pcd_temp_path, pcd)
 
-    data = {
-        "rgb": rgb.tolist(),
-        "pcd": pcd_temp_file,
-        "contact_point": contact_point,
-        "post_contact_dir": post_contact_dir,
-    }
+    # 发送数据
+    with open(pcd_temp_path, "rb") as pcd_file:
+        files = {"pcd": pcd_file}
+        data = {
+            "rgb": json.dumps(rgb.tolist()),  # 转换为 JSON 字符串
+            "contact_point": json.dumps(contact_point),  # 转换为 JSON
+            "post_contact_dir": json.dumps(post_contact_dir),  # 转换为 JSON
+        }
 
-    response = requests.post(ram_url, json=data)
+        response = requests.post(ram_url, data=data, files=files)
+
+    # 删除临时 PCD 文件
+    os.remove(pcd_temp_path)
 
     if response.status_code == 200:
         result = response.json()
@@ -327,3 +278,37 @@ def ram_api(rgb, pcd, pcd_temp_file, contact_point, post_contact_dir, ram_url_po
     else:
         print(f"Error {response.status_code}: {response.text}")
         return None
+
+
+def rdt_api(
+    instruction=None, image_path=None, image_previous_path=None, depth_path=None, depth_previous_path=None, port=5003
+):
+    url = f"http://localhost:{port}/inference"
+    data = {
+        "instruction": instruction,
+        "image_path": image_path,
+        "image_previous_path": image_previous_path,
+        "depth_path": depth_path,
+        "depth_previous_path": depth_previous_path,
+    }
+
+    response = requests.post(url, json=data)
+    if response.status_code == 200:
+        result = response.json()
+        if len(result) == 1 and "error" in result:
+            print(f"Error: {result['error']}")
+            return None
+        return result
+    else:
+        print(f"Error {response.status_code}: {response.text}")
+        return None
+
+
+def get_gripper_action():
+    # TODO
+    return 0
+
+
+def get_rotation(task_name: str, rotation_data_file: str):
+    # TODO
+    pass
