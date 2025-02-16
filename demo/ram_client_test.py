@@ -1,7 +1,3 @@
-from debug_util import setup_debugger
-
-if __name__ == "__main__":
-    setup_debugger(ip_addr="127.0.0.1", port=9501, debug=False)
 import os
 import json
 import random

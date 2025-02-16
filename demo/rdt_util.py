@@ -247,7 +247,7 @@ def save_images_temp(image_list):
     return image_paths
 
 
-def ram_api(rgb, pcd, contact_point, post_contact_dir, ram_url = f"http://210.45.70.21:20606/lift_affordance"):
+def ram_api(rgb, pcd, contact_point, post_contact_dir, ram_url=f"http://210.45.70.21:20606/lift_affordance"):
     # ram_url = f"http://127.0.0.1:5002/lift_affordance"
 
     # 使用临时文件存储 PCD
@@ -311,4 +311,4 @@ def get_gripper_action():
 
 def get_rotation(task_name: str, rotation_data_file: str):
     # TODO
-    pass
+    return [0, 0, 0]

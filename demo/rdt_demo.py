@@ -1,8 +1,3 @@
-from debug_util import setup_debugger
-
-if __name__ == "__main__":
-    setup_debugger(ip_addr="127.0.0.1", port=9501, debug=False)
-
 import argparse
 import site
 import os
@@ -34,6 +29,7 @@ import tempfile
 
 
 def main(args):
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_idx
     site.main()
 
     task_name = "google_robot_pick_coke_can"  # @param ["google_robot_pick_coke_can", "google_robot_move_near", "google_robot_open_drawer", "google_robot_close_drawer", "widowx_spoon_on_towel", "widowx_carrot_on_plate", "widowx_stack_cube", "widowx_put_eggplant_in_basket"]
@@ -108,7 +104,7 @@ def main(args):
         goal_pos_world = goal_pos_world_hom[:3]
 
         action = env.action_space.sample()  # replace this with your policy inference
-        action[0:3] = goal_pos_world - obs["robot"]["gripper"]["position"]
+        action[0:3] = goal_pos_world - obs["extra"]["tcp_pose"][:3]
         action[3:6] = get_rotation(task_name=task_name, rotation_data_file=args.rotation_data_file)
         action[6] = get_gripper_action()
 
@@ -131,6 +127,7 @@ if __name__ == "__main__":
     parser.add_argument("--ram_url", type=str, default=f"http://210.45.70.21:20606/lift_affordance", help="RAM url.")
     parser.add_argument("--rdt_port", type=int, default=5003, help="RDT Port.")
     parser.add_argument("--rotation_data_file", type=str, default="")
+    parser.add_argument("--cuda_idx", type=str, default="3")
     args = parser.parse_args()
 
     main(args)

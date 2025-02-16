@@ -54,6 +54,10 @@ cd /home/panwen.hu/workspace/jian.zhang/EAI/AffordDiffusionTransformer
 CUDA_VISIBLE_DEVICES=2 python -m scripts.afford_inference_demo
 ``` -->
 
+For RDT:
+- Do Not use : 0, 4, 6
+- Free to use : 3, 5
+
 ```bash
 tmux new -s rdt.api
 cd /home/xurongtao/jianzhang/Afford-RDT-deploy
@@ -64,10 +68,6 @@ CUDA_VISIBLE_DEVICES=0 python scripts/afford_server_minghao.py
 
 ## 4. Run simpler demo
 
-For RDT:
-- Do Not use : 0, 4, 6
-- Free to use : 3, 5
-
 For simpler:
 - Do Not use : 0
 - Free to use : 3, 5
@@ -77,7 +77,7 @@ ps aux | grep X
 kill -9 xxxx
 nohup sudo X :0 &
 export DISPLAY=:0
-CUDA_VISIBLE_DEVICES=5 python demo/rdt_demo.py
+CUDA_VISIBLE_DEVICES=3 python demo/rdt_demo.py
 ```
 
 ## TO DO
