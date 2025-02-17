@@ -35,3 +35,5 @@ output
 temp_test
 demo/temp_save
 demo/temp.jpg
+
+demo/rdt_demo_lz.py

@@ -32,7 +32,7 @@ def main(args):
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_idx
     site.main()
 
-    task_name = "google_robot_pick_coke_can"  # @param ["google_robot_pick_coke_can", "google_robot_move_near", "google_robot_open_drawer", "google_robot_close_drawer", "widowx_spoon_on_towel", "widowx_carrot_on_plate", "widowx_stack_cube", "widowx_put_eggplant_in_basket"]
+    task_name = "google_robot_pick_coke_can"  # @param ["google_robot_pick_coke_can", "google_robot_pick_object", "google_robot_move_near", "google_robot_open_drawer", "google_robot_close_drawer", "google_robot_place_in_closed_drawer", "widowx_spoon_on_towel", "widowx_carrot_on_plate", "widowx_stack_cube", "widowx_put_eggplant_in_basket"]
 
     if "env" in locals():
         print("Closing existing env")
@@ -105,8 +105,8 @@ def main(args):
 
         action = env.action_space.sample()  # replace this with your policy inference
         action[0:3] = goal_pos_world - obs["extra"]["tcp_pose"][:3]
-        action[3:6] = get_rotation(task_name=task_name, rotation_data_file=args.rotation_data_file)
-        action[6] = get_gripper_action()
+        action[3:6] = get_rotation(task_name=task_name, data_file=args.simpler_data_file)
+        action[6] = get_gripper_action(task_name=task_name, data_file=args.simpler_data_file)
 
         obs, reward, done, truncated, info = env.step(action)
 
@@ -126,7 +126,7 @@ if __name__ == "__main__":
     parser.add_argument("--depth_port", type=int, default=5001, help="Depth Anything v2 Port.")
     parser.add_argument("--ram_url", type=str, default=f"http://210.45.70.21:20606/lift_affordance", help="RAM url.")
     parser.add_argument("--rdt_port", type=int, default=5003, help="RDT Port.")
-    parser.add_argument("--rotation_data_file", type=str, default="")
+    parser.add_argument("--simpler_data_file", type=str, default="/home/xurongtao/minghao/SimplerEnv/demo/simpler_data.json")
     parser.add_argument("--cuda_idx", type=str, default="3")
     args = parser.parse_args()
 

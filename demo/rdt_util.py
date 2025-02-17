@@ -304,11 +304,30 @@ def rdt_api(
         return None
 
 
-def get_gripper_action():
-    # TODO
-    return 0
+def load_rotation_data(data_file: str):
+    """Load rotation data from a JSON file."""
+    try:
+        with open(data_file, "r") as f:
+            data = json.load(f)
+        return data
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"Error loading JSON file: {e}")
+        return {}
 
 
-def get_rotation(task_name: str, rotation_data_file: str):
-    # TODO
-    return [0, 0, 0]
+def get_gripper_action(task_name: str, data_file: str):
+    """Retrieve the gripper action for a specific task from the JSON file."""
+    data = load_rotation_data(data_file)
+    return data.get(task_name, {}).get("gripper_action", 0)
+
+
+def get_rotation(task_name: str, data_file: str):
+    """Retrieve the rotation values for a specific task from the JSON file."""
+    data = load_rotation_data(data_file)
+    return data.get(task_name, {}).get("rotation", [0, 0, 0])
+
+
+if __name__ == "__main__":
+    data_file = "/home/xurongtao/minghao/SimplerEnv/demo/simpler_data.json"
+    print(get_gripper_action("demo", data_file))  # Output: 1
+    print(get_rotation("demo", data_file))  # Output: [0.1, 0.2, 0.3]
