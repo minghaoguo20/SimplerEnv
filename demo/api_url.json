@@ -1,0 +1,8 @@
+{
+    "depth": "http://210.45.70.21:23846/get_depth",
+    "rdt": "",
+    "ram": "http://210.45.70.21:20606/lift_affordance",
+
+    "depth1": "http://localhost:5001/get_depth",
+    "demo": ""
+}

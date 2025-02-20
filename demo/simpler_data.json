@@ -1,10 +1,10 @@
 {
-    "demo": {
-        "gripper_action": 1,
+    "google_robot_pick_coke_can": {
+        "gripper_action": 0,
         "rotation": [
-            0.1,
-            0.2,
-            0.3
+            0.22,
+            -0.41,
+            0.34
         ]
     }
 }

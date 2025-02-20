@@ -9,6 +9,39 @@ import os
 import subprocess
 import ast
 import open3d as o3d
+import sys
+from io import BytesIO
+
+
+class visualizer:
+    @staticmethod
+    def print_dict_keys(d, indent=0):
+        """
+        递归遍历字典，打印所有 key 为字符串的键名，带缩进
+        :param d: 需要遍历的字典
+        :param indent: 当前缩进层级
+        """
+        if isinstance(d, dict):
+            for key, value in d.items():
+                if isinstance(key, str):  # 只打印字符串类型的 key
+                    print(" " * indent + key)
+                visualizer.print_dict_keys(value, indent + 4)  # 递归增加缩进层级
+
+
+def print_progress(info):
+    sys.stdout.write(info)
+    sys.stdout.flush()
+
+
+def get_camera_name(env, camera_name=None):
+    if camera_name is None:
+        if "google_robot" in env.robot_uid:
+            camera_name = "overhead_camera"
+        elif "widowx" in env.robot_uid:
+            camera_name = "3rd_view_camera"
+        else:
+            raise NotImplementedError()
+    return camera_name
 
 
 def create_o3d_point_cloud(points, colors):
@@ -30,12 +63,12 @@ def obs2pcd(obs, depth_scale=1.0, camera="overhead_camera"):
     """
     import numpy as np
 
-    rgb = obs["image"]["overhead_camera"]["rgb"]
+    rgb = obs["image"][camera]["rgb"]
     rgb = np.array(Image.fromarray(rgb).resize((640, 480)))
-    depth = obs["image"]["overhead_camera"]["depth"]
+    depth = obs["image"][camera]["depth"]
     depth = np.array(Image.fromarray(depth.squeeze()).resize((640, 480)))
-    seg = obs["image"]["overhead_camera"]["Segmentation"][..., 0]  # Extract segmentation mask
-    intrinsic_matrix = obs["camera_param"]["overhead_camera"]["intrinsic_cv"]
+    seg = obs["image"][camera]["Segmentation"][..., 0]  # Extract segmentation mask
+    intrinsic_matrix = obs["camera_param"][camera]["intrinsic_cv"]
 
     intrinsics_dict = {
         "fx": intrinsic_matrix[0, 0],
@@ -98,7 +131,9 @@ def create_point_cloud(depth_image, color_image, depth_scale, intrinsics, use_se
     return points, colors
 
 
-def image2depth_api(image, port=5001, temp_path="/home/xurongtao/minghao/SimplerEnv/demo/temp.jpg"):
+def image2depth_api(
+    image, api_url_file="demo/api_url.json", port=5001, temp_path="/home/xurongtao/minghao/SimplerEnv/demo/temp.jpg"
+):
     """
     Sends an image to the Flask server and retrieves the depth image as a NumPy array.
 
@@ -123,7 +158,8 @@ def image2depth_api(image, port=5001, temp_path="/home/xurongtao/minghao/Simpler
         return None
 
     # Define the Flask API URL
-    url = f"http://localhost:{port}/get_depth"
+    # url = f"http://localhost:{port}/get_depth"
+    url = load_json_data(api_url_file).get("depth")
 
     # Create the JSON payload
     payload = {"img_path": img_path}
@@ -247,8 +283,9 @@ def save_images_temp(image_list):
     return image_paths
 
 
-def ram_api(rgb, pcd, contact_point, post_contact_dir, ram_url=f"http://210.45.70.21:20606/lift_affordance"):
-    # ram_url = f"http://127.0.0.1:5002/lift_affordance"
+def ram_api(rgb, pcd, contact_point, post_contact_dir, api_url_file="demo/api_url.json"):
+    # server_url = f"http://127.0.0.1:5002/lift_affordance"
+    server_url = load_json_data(api_url_file).get("ram")
 
     # 使用临时文件存储 PCD
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pcd") as temp_pcd:
@@ -264,7 +301,7 @@ def ram_api(rgb, pcd, contact_point, post_contact_dir, ram_url=f"http://210.45.7
             "post_contact_dir": json.dumps(post_contact_dir),  # 转换为 JSON
         }
 
-        response = requests.post(ram_url, data=data, files=files)
+        response = requests.post(server_url, data=data, files=files)
 
     # 删除临时 PCD 文件
     os.remove(pcd_temp_path)
@@ -304,7 +341,7 @@ def rdt_api(
         return None
 
 
-def load_rotation_data(data_file: str):
+def load_json_data(data_file: str):
     """Load rotation data from a JSON file."""
     try:
         with open(data_file, "r") as f:
@@ -317,17 +354,64 @@ def load_rotation_data(data_file: str):
 
 def get_gripper_action(task_name: str, data_file: str):
     """Retrieve the gripper action for a specific task from the JSON file."""
-    data = load_rotation_data(data_file)
+    data = load_json_data(data_file)
     return data.get(task_name, {}).get("gripper_action", 0)
 
 
 def get_rotation(task_name: str, data_file: str):
     """Retrieve the rotation values for a specific task from the JSON file."""
-    data = load_rotation_data(data_file)
+    data = load_json_data(data_file)
     return data.get(task_name, {}).get("rotation", [0, 0, 0])
 
 
+def depth_api(image, api_url_file="demo/api_url.json"):
+    """
+    发送图片到Flask服务器，获取深度图。
+
+    :param image_path: 输入图片的路径
+    :param server_url: Flask服务器的URL（默认是本地服务器）
+    :return: 返回深度图（numpy 数组格式）
+    """
+
+    server_url = load_json_data(api_url_file).get("depth")
+
+    # # 读取图像
+    # image = cv2.imread(image_path)
+    # if image is None:
+    #     raise ValueError("无法加载输入图像，请检查路径是否正确")
+
+    # 以二进制格式编码图片
+    _, img_encoded = cv2.imencode(".jpg", image)
+    files = {"image": ("image.jpg", img_encoded.tobytes(), "image/jpeg")}
+
+    # 发送POST请求
+    response = requests.post(server_url, files=files)
+
+    if response.status_code == 200:
+        # 读取返回的深度图
+        depth_image = Image.open(BytesIO(response.content))
+        depth_array = np.array(depth_image)
+        return depth_array
+    else:
+        print(f"请求失败，状态码：{response.status_code}")
+        print(response.json())
+        return None
+
+
+class test_func:
+    @staticmethod
+    def test_depth_api():
+        depth_map = depth_api("/home/xurongtao/minghao/SimplerEnv/demo/temp.jpg")
+        if depth_map is not None:
+            save_path = "/home/xurongtao/minghao/SimplerEnv/demo/temp_depth_map.png"
+            cv2.imwrite(save_path, depth_map)
+            print(f"Depth map saved to {save_path}")
+
+
 if __name__ == "__main__":
-    data_file = "/home/xurongtao/minghao/SimplerEnv/demo/simpler_data.json"
-    print(get_gripper_action("demo", data_file))  # Output: 1
-    print(get_rotation("demo", data_file))  # Output: [0.1, 0.2, 0.3]
+    # data_file = "/home/xurongtao/minghao/SimplerEnv/demo/simpler_data.json"
+    # print(get_gripper_action("demo", data_file))  # Output: 1
+    # print(get_rotation("demo", data_file))  # Output: [0.1, 0.2, 0.3]
+    # print(load_json_data("demo/api_url.json").get("depth"))
+
+    test_func.test_depth_api()
