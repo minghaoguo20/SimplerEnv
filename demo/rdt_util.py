@@ -3,6 +3,7 @@ import torch
 from PIL import Image
 import requests
 import json
+from scipy.spatial.transform import Rotation
 import numpy as np
 import cv2
 import os
@@ -15,17 +16,40 @@ from io import BytesIO
 
 class visualizer:
     @staticmethod
+    def nparray_to_string(nparray, DIGITS):
+        """
+        将 NumPy 数组转换为字符串，保留指定位数的小数
+        :param nparray: NumPy 数组
+        :param DIGITS: 保留的小数位数
+        :return: 字符串
+        """
+        return str(np.around(nparray.astype(np.float64), DIGITS).tolist())
+
+    @staticmethod
     def print_dict_keys(d, indent=0):
         """
         递归遍历字典，打印所有 key 为字符串的键名，带缩进
         :param d: 需要遍历的字典
         :param indent: 当前缩进层级
+        visualizer.print_dict_keys(obs)
         """
         if isinstance(d, dict):
             for key, value in d.items():
                 if isinstance(key, str):  # 只打印字符串类型的 key
-                    print(" " * indent + key)
+                    if isinstance(value, np.ndarray):
+                        print(" " * indent + key + ": " + value.shape.__str__())
+                    else:
+                        print(" " * indent + key)
                 visualizer.print_dict_keys(value, indent + 4)  # 递归增加缩进层级
+
+
+class robot_util:
+    @staticmethod
+    def get_link(links, name):
+        for obj in links:
+            if obj.name == name:
+                return obj
+        return None
 
 
 def print_progress(info):
@@ -396,6 +420,129 @@ def depth_api(image, api_url_file="demo/api_url.json"):
         print(f"请求失败，状态码：{response.status_code}")
         print(response.json())
         return None
+
+
+class coordination_transform:
+    @staticmethod
+    def cal_distance(object_transformation_matrix_world, gripper_transformation_matrix_world):
+        return np.linalg.norm(object_transformation_matrix_world[:3, 3] - gripper_transformation_matrix_world[:3, 3])
+
+    @staticmethod
+    def cal_angle(object_transformation_matrix_world, gripper_transformation_matrix_world):
+        # Calculate the angle between gripper and object
+        gripper_direction = gripper_transformation_matrix_world[:3, 2]  # Assuming the z-axis is the forward direction
+        object_direction = object_transformation_matrix_world[:3, 2]  # Assuming the z-axis is the forward direction
+        # Normalize the direction vectors
+        gripper_direction /= np.linalg.norm(gripper_direction)
+        object_direction /= np.linalg.norm(object_direction)
+        # Calculate the dot product and angle
+        dot_product = np.dot(gripper_direction, object_direction)
+        angle = np.arccos(np.clip(dot_product, -1.0, 1.0))  # Clip to avoid numerical issues
+        # Convert angle to degrees
+        angle_degrees = np.degrees(angle)
+        return angle_degrees
+
+    @staticmethod
+    def compute_action(gripper_T, target_T):
+        # Extract translation vectors
+        delta_xyz = target_T[:3, 3] - gripper_T[:3, 3]
+
+        # Compute relative rotation matrix
+        R_diff = target_T[:3, :3] @ np.linalg.inv(gripper_T[:3, :3])
+
+        # Convert rotation matrix to axis-angle
+        rot = Rotation.from_matrix(R_diff)
+        axis_angle = rot.as_rotvec()  # Axis-angle representation
+
+        # Concatenate translation and rotation
+        action = np.hstack((delta_xyz, axis_angle))
+        return action
+
+    @staticmethod
+    def quaternion_to_axis_angle(q):
+        """
+        Converts a quaternion to axis-angle representation.
+
+        Args:
+            q: A list or array of four elements [w, x, y, z] representing a quaternion.
+
+        Returns:
+            axis_angle: A numpy array of shape (3,), representing the rotation in axis-angle form.
+        """
+        w, x, y, z = q
+        theta = 2 * np.arccos(np.clip(w, -1.0, 1.0))  # 计算旋转角度，防止超出范围
+
+        sin_half_theta = np.sqrt(1 - w**2)  # sin(theta/2) = sqrt(1 - cos^2(theta/2))
+
+        if sin_half_theta < 1e-6:  # 处理小角度问题，防止除 0
+            return np.array([0, 0, 0])  # 近似无旋转
+
+        axis = np.array([x, y, z]) / sin_half_theta  # 计算旋转轴
+        return axis * theta  # 轴角格式: 轴 * 角度
+
+    @staticmethod
+    def p_q_to_transformation_matrix(tcp_pose):
+        """
+        Convert a TCP pose (position + quaternion) to a 4x4 transformation matrix in world frame.
+
+        Args:
+            tcp_pose: np.array of shape (7,), [x, y, z, qw, qx, qy, qz]
+
+        Returns:
+            T_world_tcp: np.ndarray of shape (4, 4), transformation matrix of TCP in world frame
+        """
+        # 提取位置
+        position = tcp_pose[:3]  # (x, y, z)
+
+        # 修正四元数顺序 (qw, qx, qy, qz) → (qx, qy, qz, qw)
+        quaternion = np.array([tcp_pose[4], tcp_pose[5], tcp_pose[6], tcp_pose[3]])  # (qx, qy, qz, qw) → (x, y, z, w)
+
+        # 计算旋转矩阵
+        rotation_matrix = Rotation.from_quat(quaternion).as_matrix()  # (3,3) 旋转矩阵
+
+        # 构造 4×4 齐次变换矩阵
+        T_world_tcp = np.eye(4)
+        T_world_tcp[:3, :3] = rotation_matrix  # 旋转部分
+        T_world_tcp[:3, 3] = position  # 平移部分
+
+        return T_world_tcp
+
+    @staticmethod
+    def world_to_camera(world_pose_matrix, camera_extrinsic):
+        """
+        Convert a 3D world pose to camera coordinate system.
+        Args:
+            world_pose_matrix: np.ndarray (4, 4), transformation matrix in world frame
+            camera_extrinsic: np.ndarray (4, 4), camera extrinsic matrix (world → camera)
+        Returns:
+            np.ndarray (3,), transformed 3D coordinates in camera space
+        """
+        world_pos = world_pose_matrix[:3, 3]  # Extract (x, y, z) position
+        world_pos_homogeneous = np.append(world_pos, 1)  # Convert to homogeneous [x, y, z, 1]
+
+        # Transform to camera coordinate frame
+        camera_pos_homogeneous = camera_extrinsic @ world_pos_homogeneous
+        return camera_pos_homogeneous[:3]  # Drop the homogeneous coordinate
+
+    @staticmethod
+    def project_to_image(camera_pos, intrinsic_matrix):
+        """
+        Project a 3D point in camera space to 2D image space.
+        Args:
+            camera_pos: np.ndarray (3,), position in camera space [X, Y, Z]
+            intrinsic_matrix: np.ndarray (3, 3), camera intrinsic matrix
+        Returns:
+            np.ndarray (2,), 2D image coordinates [u, v]
+        """
+        X, Y, Z = camera_pos
+        if Z <= 0:
+            return None  # Point is behind the camera
+
+        # Apply intrinsic matrix: [u, v, 1] = K @ [X, Y, Z]
+        uv_homogeneous = intrinsic_matrix @ np.array([X, Y, Z])
+        u, v = uv_homogeneous[:2] / uv_homogeneous[2]  # Normalize by depth (Z)
+
+        return np.array([u, v])
 
 
 class test_func:

@@ -6,7 +6,6 @@ from simpler_env.utils.env.observation_utils import get_image_from_maniskill2_ob
 import mediapy
 import sapien.core as sapien
 from transformers import pipeline
-
 from transformers import DPTImageProcessor, DPTForDepthEstimation
 import torch
 import numpy as np
@@ -25,11 +24,16 @@ from rdt_util import (
     get_gripper_action,
     print_progress,
     get_camera_name,
+    visualizer,
+    coordination_transform,
+    robot_util,
 )
 import shutil
 import tempfile
 from datetime import datetime
 import sys
+from scipy.spatial.transform import Rotation
+from types import SimpleNamespace
 import warnings
 
 from debug_util import setup_debugger
@@ -41,7 +45,10 @@ warnings.filterwarnings("ignore")
 
 date_now = datetime.now()
 run_date = date_now.strftime("%Y%m%d_%H%M%S")
-depth_scale = 1
+DEPTH_SCALE = 1
+DIGITS = 3
+FONT_SIZE = 14  # 可以调整这个值来更改字体大小
+font = ImageFont.truetype("DejaVuSans.ttf", FONT_SIZE)  # 指定字体文件（Windows 默认字体）
 
 
 def main(args):
@@ -56,17 +63,32 @@ def main(args):
         env.close()
         del env
     env = simpler_env.make(task_name)
-    sapien.render_config.rt_use_denoiser = False
+    env._max_episode_steps = 80
+    # sapien.render_config.rt_use_denoiser = False
     obs, reset_info = env.reset()
     instruction = env.get_language_instruction()
     print("Reset info", reset_info)
     print("Instruction", instruction)
 
+    # env.unwrapped.obj
+    # env.unwrapped.tcp
+    # env.unwrapped._actors
+    actors = SimpleNamespace(obj=env.unwrapped.obj, tcp=env.unwrapped.tcp, robot=env.unwrapped.agent.robot)
+    robot = env.unwrapped.agent.robot  # 获取机器人
+    robot_link_gripper_tcp_at_world = robot_util.get_link(robot.get_links(), "link_gripper_tcp")
+
+    # scene: sapien.Scene = env.unwrapped._scene
+    # all_actors = scene.get_all_actors()
+    # for actor in all_actors:
+    #     pose = actor.get_pose()  # 获取物体的位姿
+    #     position = pose.p  # 提取位置部分
+    #     print(f"\tActor {actor.get_name()} Position: {position}")
+
     frames = []
     frames_save_dir = os.path.join(args.output_dir, f"{task_name}_{task_info}")
     os.makedirs(frames_save_dir, exist_ok=True)
-    print(f"Saving frames to: {frames_save_dir}")
-    print(f"Time: {date_now.strftime('%H%M%S')}")
+    print(f">>> Saving frames to: {frames_save_dir}")
+    print(f">>> Time: {date_now.strftime('%H%M%S')}")
 
     done, truncated = False, False
     prev_image = None  # Initialize previous image variable
@@ -78,7 +100,7 @@ def main(args):
     pose_action_pose = {}
     first_point = [0, 0]
     point_direction = [0, 0]
-    last_pose = obs["extra"]["tcp_pose"][:3]
+    tcp_last_pose = actors.tcp.pose.p
     while not (done or truncated) and retrial_times > 0:
         # action[:3]: delta xyz;
         # action[3:6]: delta rotation in axis-angle representation;
@@ -89,133 +111,214 @@ def main(args):
         # Save the current image to frames_save_dir
         # image_info += f'current pose: {obs["extra"]["tcp_pose"][:3]}'
         if current_step > 0:
-            frames_are_different = not np.all(obs["extra"]["tcp_pose"][:3] == last_pose)
-            if frames_are_different:
-                image_save_path = os.path.join(frames_save_dir, f"frame_{current_step:04d}.png")
-                # Write image_info on the image
-                image_pil = Image.fromarray(image)
-                draw = ImageDraw.Draw(image_pil)
-                draw.text((10, 10), image_info, fill="white")
+            frames_are_different = not np.all(actors.tcp.pose.p == tcp_last_pose)
+            # if not frames_are_different: break
+            # if frames_are_different:
+            #     image_save_path = os.path.join(frames_save_dir, f"frame_{current_step:04d}.png")
+            #     # Write image_info on the image
+            #     image_pil = Image.fromarray(image)
+            #     draw = ImageDraw.Draw(image_pil)
+            #     draw.text((10, 10), image_info, fill="white")
 
-                # Draw an arrow from first_point to point_direction
-                start_point = (int(first_point[0]), int(first_point[1]))
-                end_point = (int(point_direction[0]), int(point_direction[1]))
-                draw.line([start_point, end_point], fill="red", width=3)
-                draw.polygon(
-                    [end_point, (end_point[0] - 5, end_point[1] - 5), (end_point[0] + 5, end_point[1] - 5)], fill="red"
-                )
-                image_pil.save(image_save_path)
+            #     # Draw an arrow from first_point to point_direction
+            #     start_point = (int(first_point[0]), int(first_point[1]))
+            #     end_point = (int(point_direction[0]), int(point_direction[1]))
+            #     draw.line([start_point, end_point], fill="red", width=3)
+            #     draw.polygon(
+            #         [end_point, (end_point[0] - 5, end_point[1] - 5), (end_point[0] + 5, end_point[1] - 5)], fill="red"
+            #     )
+            #     image_pil.save(image_save_path)
+
             pose_action_pose[f"{current_step:03d}"] = {
                 "frames_are_different": frames_are_different,
-                "info": f'{last_pose} -> {action.tolist()} -> {obs["extra"]["tcp_pose"][:3]}',
+                "info": f"{visualizer.nparray_to_string(tcp_last_pose, DIGITS)} \t-> {visualizer.nparray_to_string(action, DIGITS)} \t-> {visualizer.nparray_to_string(actors.tcp.pose.p, DIGITS)}",
             }
-
         image_info = task_info + "\n"
         # ############################################################################
 
         # ############################## image preprocess ##############################
-        # Resize image to 640x480
-        image = np.array(Image.fromarray(image).resize((640, 480)))
-        depth = depth_api(image=image, api_url_file=args.api_url_file)
+        # image = np.array(Image.fromarray(image).resize((640, 480)))
+        # depth = depth_api(image=image, api_url_file=args.api_url_file)
         # ##############################################################################
 
         # ############################## RDT ##############################
-        if prev_image is None:
-            prev_image = image
-        if prev_depth is None:
-            prev_depth = depth
-        paths = save_images_temp(image_list=[image, prev_image, depth, prev_depth])
-        
-        # Use prev_image for your action model if needed
-        if current_step == 0:
-            rdt_result = rdt_api(
-                instruction=instruction,
-                image_path=paths[0],
-                image_previous_path=paths[1],
-                depth_path=paths[2],
-                depth_previous_path=paths[3],
-                port=args.rdt_port,
-            )
-        try:
-            points = rdt_result["points"]
-        except Exception as e:
-            print("Error in RDT API:", e)
-            retrial_times -= 1
-            continue
-        for pathh in paths:
-            os.remove(pathh)
+        # if prev_image is None:
+        #     prev_image = image
+        # if prev_depth is None:
+        #     prev_depth = depth
+        # paths = save_images_temp(image_list=[image, prev_image, depth, prev_depth])
+
+        # # Use prev_image for your action model if needed
+        # if current_step == 0:
+        #     rdt_result = rdt_api(
+        #         instruction=instruction,
+        #         image_path=paths[0],
+        #         image_previous_path=paths[1],
+        #         depth_path=paths[2],
+        #         depth_previous_path=paths[3],
+        #         port=args.rdt_port,
+        #     )
+        # try:
+        #     points = rdt_result["points"]
+        # except Exception as e:
+        #     print("Error in RDT API:", e)
+        #     retrial_times -= 1
+        #     continue
+        # for pathh in paths:
+        #     os.remove(pathh)
         # #################################################################
 
-        first_point = points[0]
-        point_direction = points[1]
-        # point_direction = [points[1][0] - points[0][0], points[1][1] - points[0][1]]
-        image_info += f"RDT: {points}\n"
-        image_info += f"\tfirst_point: {first_point}\n"
-        image_info += f"\tpoint_direction: {point_direction}\n"
+        # first_point = points[0]
+        # point_direction = points[1]
+        # # point_direction = [points[1][0] - points[0][0], points[1][1] - points[0][1]]
+        # image_info += f"RDT: {points}\n"
+        # image_info += f"\tfirst_point: {first_point}\n"
+        # image_info += f"\tpoint_direction: {point_direction}\n"
 
         # ############################## RAM ##############################
-        pcd = obs2pcd(obs, depth_scale=depth_scale, camera=get_camera_name(env))  # depth_scale = 2
-        ram_result = ram_api(
-            rgb=obs["image"][get_camera_name(env)]["rgb"],
-            pcd=pcd,
-            contact_point=first_point,
-            post_contact_dir=point_direction,
-            api_url_file=args.api_url_file
-        )  # [x, y, z]  # it was supposed to be: [score, width, height, depth, rotation_matrix(9), translation(3), object_id]
-        if ram_result is None:
-            retrial_times -= 1
-            continue
+        # pcd = obs2pcd(obs, depth_scale=DEPTH_SCALE, camera=get_camera_name(env))  # depth_scale = 2
+        # ram_result = ram_api(
+        #     rgb=obs["image"][get_camera_name(env)]["rgb"],
+        #     pcd=pcd,
+        #     contact_point=first_point,
+        #     post_contact_dir=point_direction,
+        #     api_url_file=args.api_url_file,
+        # )  # [x, y, z]  # it was supposed to be: [score, width, height, depth, rotation_matrix(9), translation(3), object_id]
+        # if ram_result is None:
+        #     retrial_times -= 1
+        #     continue
         # #################################################################
 
         """
-        for depth_scale in [30,40,50,100]:
-            pcd = obs2pcd(obs, depth_scale=depth_scale, camera=get_camera_name(env))
-            ram_result = ram_api(
-                rgb=obs["image"][get_camera_name(env)]["rgb"],
-                pcd=pcd,
-                contact_point=first_point,
-                post_contact_dir=point_direction,
-                api_url_file=args.api_url_file
-            )
-            print(f"depth_scale={depth_scale} \t| xyz={ram_result['position']}")
-
-            #       depth_scale=0.01    | xyz=[0, 0, 0]
-            #       depth_scale=0.1     | xyz=[0, 0, 0]
-            #       depth_scale=0.5     | xyz=[0, 0, 0]
-            #       depth_scale=1       | xyz=[0, 0, 0]
-            #       depth_scale=5       | xyz=[1, 0, 2]
-            #       depth_scale=10      | xyz=[2, 0, 4]
-            #       depth_scale=20      | xyz=[4, 1, 9]
-            #       depth_scale=30      | xyz=[6, 2, 13]
-            #       depth_scale=40      | xyz=[8, 3, 18]
-            #       depth_scale=50      | xyz=[10, 4, 23]
+            depth_scale=0.5     | xyz=[0, 0, 0]
+            depth_scale=1       | xyz=[0, 0, 0]
+            depth_scale=5       | xyz=[1, 0, 2]
+            depth_scale=10      | xyz=[2, 0, 4]
+            depth_scale=20      | xyz=[4, 1, 9]
         """
 
         # ############################## coordination convertion ##############################
-        goal_position = ram_result["position"]  # t_obj at camera
-        goal_pos_cam_hom = np.append(goal_position, 1)
-        goal_pos_world_hom = obs["camera_param"][get_camera_name(env)]["cam2world_gl"] @ goal_pos_cam_hom
-        goal_pos_world = goal_pos_world_hom[:3]
-        """
-        image_info += f'RAM\n'
-        image_info += f'    RAM position: {ram_result["position"]}\n'
-        # image_info += f'\tcam 2 world: {obs["camera_param"][get_camera_name(env)]["cam2world_gl"]}\n'
-        image_info += f"    -> base coordinate: {goal_pos_world}\n"
-        """
-        # random_action = env.action_space.sample()  # replace this with your policy inference
         action = np.zeros(7)
-        action[0:3] = goal_pos_world - obs["extra"]["tcp_pose"][:3]
-        action[3:6] = get_rotation(task_name=task_name, data_file=args.simpler_data_file)
-        action[6] = get_gripper_action(task_name=task_name, data_file=args.simpler_data_file)
+
+        camera_at_world = obs["camera_param"][get_camera_name(env)]["cam2world_gl"]
+        robot_base_at_world = coordination_transform.p_q_to_transformation_matrix(
+            np.concatenate((robot.pose.p, robot.pose.q), axis=0)
+        )
+
+        # object_pose_camera = ram_result["position"]  # t_obj at camera frame
+        # object_pose_world = camera_at_world @ object_pose_camera
+        object_pose_world = actors.obj.get_pose().p  # from GT
+        object_rotation_world = actors.obj.get_pose().to_transformation_matrix()[:3, :3]  # from GT
+        object_transformation_matrix_world = np.eye(4)
+        object_transformation_matrix_world[:3, 3] = object_pose_world
+        object_transformation_matrix_world[:3, :3] = object_rotation_world
+
+        gripper_transformation_matrix_world = actors.tcp.pose.to_transformation_matrix()
+
+        action[0:6] = coordination_transform.compute_action(
+            gripper_transformation_matrix_world,
+            object_transformation_matrix_world,
+        )
+        action[6] = 0
+
+        offset = np.array([0, 0, 0, 0, 0, 0, 0], dtype=np.float16)
+        coeffi = np.array([-1, -1, 1, 1, 1, 1, 1], dtype=np.float16)
+        pose_magnitude = 1
+        rot_magnitude = 0.2
+        coeffi[0:3] = coeffi[0:3] * pose_magnitude
+        coeffi[3:6] = coeffi[3:6] * rot_magnitude
+        action = (action - offset) * coeffi
+
+        dist_points = coordination_transform.cal_distance(
+            object_transformation_matrix_world,
+            gripper_transformation_matrix_world,
+        )
+        angle_degrees = coordination_transform.cal_angle(
+            object_transformation_matrix_world,
+            gripper_transformation_matrix_world,
+        )
+        if dist_points < 0.02:
+            action[6] = 1
+        elif dist_points > 0.1:
+            action[6] = 0
+
+        tcp_last_pose = actors.tcp.pose.p
+
+        # ############################## Track & Info ##############################
+        intrinsic_matrix = obs["camera_param"][get_camera_name(env)]["intrinsic_cv"]
+        camera_extrinsic = obs["camera_param"][get_camera_name(env)]["extrinsic_cv"]
+
+        # Convert to camera coordinates
+        object_camera_pos = coordination_transform.world_to_camera(object_transformation_matrix_world, camera_extrinsic)
+        gripper_camera_pos = coordination_transform.world_to_camera(
+            gripper_transformation_matrix_world, camera_extrinsic
+        )
+
+        # Project to 2D
+        object_2d = coordination_transform.project_to_image(object_camera_pos, intrinsic_matrix)
+        gripper_2d = coordination_transform.project_to_image(gripper_camera_pos, intrinsic_matrix)
+
+        # Draw the projected points on the image
+        # Print object_2d and gripper_2d on the image
+        image_pil = Image.fromarray(image)
+        draw = ImageDraw.Draw(image_pil)
+        draw_w_offset = 200
+        if object_2d is not None:
+            _object_2d = visualizer.nparray_to_string(object_2d, DIGITS)
+            _object_camera_pos = visualizer.nparray_to_string(object_camera_pos, DIGITS)
+            _object_world_pos = visualizer.nparray_to_string(object_transformation_matrix_world[:3, 3], DIGITS)
+            draw.ellipse([object_2d[0] - 5, object_2d[1] - 5, object_2d[0] + 5, object_2d[1] + 5], fill="blue")
+            draw.text((object_2d[0] - draw_w_offset, object_2d[1]), f"Object: {_object_2d}", fill="blue", font=font)
+            draw.text(
+                (object_2d[0] - draw_w_offset, object_2d[1] + FONT_SIZE),
+                f"Camera: {_object_camera_pos}",
+                fill="blue",
+                font=font,
+            )
+            draw.text(
+                (object_2d[0] - draw_w_offset, object_2d[1] + 2 * FONT_SIZE),
+                f"World: {_object_world_pos}",
+                fill="blue",
+                font=font,
+            )
+        if gripper_2d is not None:
+            _gripper_2d = visualizer.nparray_to_string(gripper_2d, DIGITS)
+            _gripper_camera_pos = visualizer.nparray_to_string(gripper_camera_pos, DIGITS)
+            _gripper_world_pos = visualizer.nparray_to_string(gripper_transformation_matrix_world[:3, 3], DIGITS)
+            draw.ellipse([gripper_2d[0] - 5, gripper_2d[1] - 5, gripper_2d[0] + 5, gripper_2d[1] + 5], fill="green")
+            draw.text(
+                (gripper_2d[0] - draw_w_offset, gripper_2d[1]), f"Gripper: {_gripper_2d}", fill="green", font=font
+            )
+            draw.text(
+                (gripper_2d[0] - draw_w_offset, gripper_2d[1] + FONT_SIZE),
+                f"Camera: {_gripper_camera_pos}",
+                fill="green",
+                font=font,
+            )
+            draw.text(
+                (gripper_2d[0] - draw_w_offset, gripper_2d[1] + 2 * FONT_SIZE),
+                f"World: {_gripper_world_pos}",
+                fill="green",
+                font=font,
+            )
+        action_text = f"Action: {visualizer.nparray_to_string(action, DIGITS)}"
+        draw.text((10, 1 * FONT_SIZE), action_text, fill="white", font=font)
+        draw.text((10, 2 * FONT_SIZE), f"Distance: {dist_points:.2f}", fill="white", font=font)
+        draw.text((10, 3 * FONT_SIZE), f"Angle: {angle_degrees:.2f} degrees", fill="white", font=font)
+        image = np.array(image_pil)
+        # ############################################################################
+
+        frames.append(image)
+
+        obs, reward, done, truncated, info = env.step(action)
+
+        # action[0:3] = goal_pos_world - obs["extra"]["tcp_pose"][:3]
+        # action[3:6] = get_rotation(task_name=task_name, data_file=args.simpler_data_file)
+        # action[6] = get_gripper_action(task_name=task_name, data_file=args.simpler_data_file)
         # ######################################################################################
 
-        last_pose = obs["extra"]["tcp_pose"][:3]
-
-        # action = np.zeros(7)
-        # step_0 = 0.1
-        # action[0] = np.exp(-step_0 * current_step)
-        # image_info += f"action: {action.tolist()}\n"
-        # image_info += f"current pose: {last_pose}\n"
+        image_info += f"action: {action.tolist()}\n"
+        image_info += f"current pose: {tcp_last_pose}\n"
 
         """
         # image_info += f"[ref] random_action: {action}\n"
@@ -224,17 +327,15 @@ def main(args):
         # image_info += f"rotation: {action[3:6]}\n"
         # image_info += f"gripper: {action[6]}\n"
         """
-        obs, reward, done, truncated, info = env.step(action)
 
-        prev_image = image  # Update prev_image to current image
-        prev_depth = depth  # Update prev_depth to current depth
-        frames.append(image)
+        # prev_image = image  # Update prev_image to current image
+        # prev_depth = depth  # Update prev_depth to current depth
 
         # print_progress(
         #     f'\rFinished step: {current_step} | action: {action} | {obs["extra"]["tcp_pose"][:3]} -> {goal_pos_world}\t'
         # )
         print_progress(
-            f'\rFinished step: {current_step} | action: {action.tolist()} | {obs["extra"]["tcp_pose"][:3]}\t'
+            f'\rStep {current_step} [{not np.all(actors.tcp.pose.p == tcp_last_pose)}] \t| action: {visualizer.nparray_to_string(action, DIGITS)} \t| {visualizer.nparray_to_string(obs["extra"]["tcp_pose"][0:3], DIGITS)}\t'
         )
         current_step += 1
 
@@ -251,12 +352,12 @@ def main(args):
         for step in pose_action_pose:
             item = pose_action_pose[step]
             if item["frames_are_different"]:
-                f.write(f'{step} \t{item["info"]} + \n')
+                f.write(f'{step}\t{item["info"]}\n')
         f.write("\n" + "*" * 50 + "\n\n")
         for step in pose_action_pose:
             item = pose_action_pose[step]
-            changed = "[Changed]" if item["frames_are_different"] else "[No movement]"
-            f.write(f'{step} \t{changed} \t{item["info"]} + \n')
+            changed = "[Changed]" if item["frames_are_different"] else "[No Move]"
+            f.write(f'{step} \t{changed} \t{item["info"]} \n')
         f.write("\n" + "*" * 50 + "\n\n")
     print(f"Pose action data saved to {pose_action_save_path}")
 
