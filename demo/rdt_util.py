@@ -12,6 +12,7 @@ import ast
 import open3d as o3d
 import sys
 from io import BytesIO
+import sapien.core as sapien
 
 
 class visualizer:
@@ -43,13 +44,33 @@ class visualizer:
                 visualizer.print_dict_keys(value, indent + 4)  # 递归增加缩进层级
 
 
-class robot_util:
+class sim_util:
     @staticmethod
     def get_link(links, name):
         for obj in links:
             if obj.name == name:
                 return obj
         return None
+
+    @staticmethod
+    def get_depth(scene: sapien.Scene, camera):
+        # scene.step()  # make everything set
+        scene.update_render()
+        camera.take_picture()
+
+        # Each pixel is (x, y, z, render_depth) in camera space (OpenGL/Blender)
+        position = camera.get_float_texture("Position")  # [H, W, 4]
+
+        # # OpenGL/Blender: y up and -z forward
+        # points_opengl = position[..., :3][position[..., 3] < 1]
+        # # Model matrix is the transformation from OpenGL camera space to SAPIEN world space
+        # # camera.get_model_matrix() must be called after scene.update_render()!
+        # model_matrix = camera.get_model_matrix()
+        # points_world = points_opengl @ model_matrix[:3, :3].T + model_matrix[:3, 3]
+
+        depth = -position[..., 2]
+
+        return depth
 
 
 def print_progress(info):
@@ -376,16 +397,18 @@ def load_json_data(data_file: str):
         return {}
 
 
-def get_gripper_action(task_name: str, data_file: str):
-    """Retrieve the gripper action for a specific task from the JSON file."""
-    data = load_json_data(data_file)
-    return data.get(task_name, {}).get("gripper_action", 0)
+class hyperparams:
+    @staticmethod
+    def get_gripper_action(task_name: str, data_file: str):
+        """Retrieve the gripper action for a specific task from the JSON file."""
+        data = load_json_data(data_file)
+        return data.get(task_name, {}).get("gripper_action", 0)
 
-
-def get_rotation(task_name: str, data_file: str):
-    """Retrieve the rotation values for a specific task from the JSON file."""
-    data = load_json_data(data_file)
-    return data.get(task_name, {}).get("rotation", [0, 0, 0])
+    @staticmethod
+    def get_rotation(task_name: str, data_file: str):
+        """Retrieve the rotation values for a specific task from the JSON file."""
+        data = load_json_data(data_file)
+        return data.get(task_name, {}).get("rotation", [0, 0, 0])
 
 
 def depth_api(image, api_url_file="demo/api_url.json"):

@@ -39,3 +39,5 @@ demo/temp.jpg
 demo/rdt_demo_lz.py
 demo/temp_depth_map.png
 demo/rdt_demo_easy.py
+depth.png
+depth_visualized.png
