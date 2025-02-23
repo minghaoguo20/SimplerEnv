@@ -71,15 +71,16 @@ def main(args):
     print("Reset info", reset_info)
     print("Instruction", instruction)
 
-    # todo get all actors / objects / links ... as a pool to find from
-    actors = SimpleNamespace(obj=env.unwrapped.obj, tcp=env.unwrapped.tcp, robot=env.unwrapped.agent.robot)
+    try:
+        actors = SimpleNamespace(obj=env.unwrapped.obj, tcp=env.unwrapped.tcp)
+    except:
+        actors = SimpleNamespace(tcp=env.unwrapped.tcp)
     # robot = env.unwrapped.agent.robot  # 获取机器人
     # robot_link_gripper_tcp_at_world = sim_util.get_link(robot.get_links(), "link_gripper_tcp")
-
     # scene: sapien.Scene = env.unwrapped._scene
 
     frames = []
-    frames_save_dir = os.path.join(args.output_dir, f"{task_name}_{task_info}")
+    frames_save_dir = os.path.join(args.output_dir, f"{task_info}_{task_name}")
     os.makedirs(frames_save_dir, exist_ok=True)
     print(f">>> Saving frames to: {frames_save_dir}")
     print(f">>> TimeStamp: {date_now.strftime('%H%M%S')}")
@@ -103,14 +104,31 @@ def main(args):
         post=KeyPoint(p3d=sapien.Pose()),
     )
 
+    # [todo] modeify here
     # quaternion = np.array(hyperparams.get_hyper(task_name, "quaternion", args.simpler_data_file))
-    quaternion = actors.tcp.pose.q
+    quaternion = actors.tcp.pose.q # w, x, y, z
     key_points.pre.p3d.set_q(quaternion)
     key_points.first.p3d.set_q(quaternion)
     key_points.post.p3d.set_q(quaternion)
 
     cameras = env.unwrapped._scene.get_cameras()
     camera = cameras[1]
+
+    camera_intrinsic = obs["camera_param"][get_camera_name(env)]["intrinsic_cv"]
+    camera_extrinsic = obs["camera_param"][get_camera_name(env)]["extrinsic_cv"]
+    # camera_extrinsic = obs["camera_param"][get_camera_name(env)]["cam2world_gl"]
+
+    # ############################## point cloud pose ##############################
+    points_position_world = sim_util.get_pcd_positions(camera)
+    pcd_points = []
+    for point in points_position_world:
+        pixel = coordination_transform.project_to_image(
+            coordination_transform.position_to_camera(point, camera_extrinsic), camera_intrinsic
+        )
+        pd = KeyPoint(p2d=pixel[::1], p3d=sapien.Pose())
+        pd.p3d.set_p(point)
+        pcd_points.append(pd)  # W, H
+    # ##############################################################################
 
     # ############################## image preprocess ##############################
     image = get_image_from_maniskill2_obs_dict(env, obs)
@@ -146,37 +164,46 @@ def main(args):
         if pathh is not None:
             os.remove(pathh)
 
-    key_points.first_a0.p2d = np.array(points[0])
-    key_points.post_a0.p2d = np.array(points[-1])
+    key_points.first_a0.p2d = np.array(points[0])[::-1]
+    key_points.post_a0.p2d = np.array(points[-1])[::-1]
     # ###############################################################################
 
     # ############################# find nearest object #############################
-    dist_array = []
-    # all_actors = set()
-    # for atcl in env.get_articulations():
-    #     for joint in atcl.get_joints():
-    #         all_actors.add(joint)  # set 自动去重
-    all_actors = env.unwrapped._scene.get_all_actors()
-    for idx, ac in enumerate(all_actors):
-        # print(coordination_transform.pose_to_transformation_matrix(ac.pose))
-        p_2d = coordination_transform.project_to_image(
-            ac.pose.p,
-            obs["camera_param"][get_camera_name(env)]["intrinsic_cv"],
-        )
-        dist = coordination_transform.dist_2d(key_points.first_a0.p2d, p_2d) if (p_2d is not None) else np.inf
+    """
+    # dist_array = []
+    # # all_actors = set()
+    # # for atcl in env.get_articulations():
+    # #     for joint in atcl.get_joints():
+    # #         all_actors.add(joint)  # set 自动去重
+    # all_actors = env.unwrapped._scene.get_all_actors()
+    # for idx, ac in enumerate(all_actors):
+    #     # print(coordination_transform.pose_to_transformation_matrix(ac.pose))
+    #     p_2d = coordination_transform.project_to_image(
+    #         ac.pose.p,
+    #         obs["camera_param"][get_camera_name(env)]["intrinsic_cv"],
+    #     )
+    #     dist = coordination_transform.dist_2d(key_points.first_a0.p2d, p_2d) if (p_2d is not None) else np.inf
 
-        dist_array.append(dist)
-    min_index = np.argmin(dist_array)
-    print(f"All actors: {[ac.name for ac in all_actors]}")
-    print(f"Nearest object: {all_actors[min_index].name}")
-    key_points.first.p3d.set_p(all_actors[min_index].pose.p)
+    #     dist_array.append(dist)
+    # min_index = np.argmin(dist_array)
+    # print(f"All actors: {[ac.name for ac in all_actors]}")
+    # print(f"Nearest object: {all_actors[min_index].name}")
+    # key_points.first.p3d.set_p(all_actors[min_index].pose.p)
+    """
+    nearest_point = min(
+        pcd_points, key=lambda point: coordination_transform.dist_2d(key_points.first_a0.p2d, point.p2d)
+    )
+    key_points.first.p3d.set_p(nearest_point.p3d.p)
+
+    nearest_point = min(pcd_points, key=lambda point: coordination_transform.dist_2d(key_points.post_a0.p2d, point.p2d))
+    key_points.post.p3d.set_p(nearest_point.p3d.p)
     # ###############################################################################
 
     # ################################## key point ##################################
     key_points.pre.p3d = coordination_transform.compute_pre_pose(key_points.first.p3d.p, actors.tcp.pose.q)
-    _position = hyperparams.get_hyper(task_name, "position", args.simpler_data_file)
-    if _position is not None:
-        key_points.post.p3d.set_p(_position)
+    # _position = hyperparams.get_hyper(task_name, "position", args.simpler_data_file)
+    # if _position is not None:
+    #     key_points.post.p3d.set_p(_position)
     key_points.pre.p3d_to_matrix()
     key_points.first.p3d_to_matrix()
     key_points.post.p3d_to_matrix()
@@ -202,8 +229,9 @@ def main(args):
     # ################################################################################
     """
 
-    stage = deque(["pre", "first", "post"])
 
+    # ################################## def stages ##################################
+    stage = deque(["pre", "first", "post"])
     def get_point_and_grasp(current_stage, key_points=key_points):
         if current_stage == "pre":
             object_point = key_points.pre
@@ -218,6 +246,7 @@ def main(args):
 
     current_stage = stage[0]
     object_point, grasp_state = get_point_and_grasp(current_stage, key_points)
+    # ###############################################################################
 
     while not (done or truncated) and len(stage) > 0:
         """
@@ -245,24 +274,23 @@ def main(args):
 
         # ################################ depth to pose ################################
         # # gt_2d = coordination_transform.project_to_image(coordination_transform.world_to_camera(actors.obj.get_pose().to_transformation_matrix(), obs["camera_param"][get_camera_name(env)]["extrinsic_cv"]), obs["camera_param"][get_camera_name(env)]["intrinsic_cv"])
-        # depth = depth * DEPTH_SCALE
-        #
+
         # u, v = key_points.first_a0.p2d  # 像素坐标 (x, y)
         # # u, v = gt_2d.astype(np.uint16)
-        # Z_c = depth[u, v]  # 深度值
+        # Z_c = depth[v, u]  # 深度值
         # K = obs["camera_param"][get_camera_name(env)]["intrinsic_cv"]
         # fx, fy = K[0, 0], K[1, 1]
         # cx, cy = K[0, 2], K[1, 2]
         # # 计算相机坐标系中的3D点
         # X_c = (u - cx) * Z_c / fx
         # Y_c = (v - cy) * Z_c / fy
-        #
+
         # P_c = np.array([X_c, Y_c, Z_c, 1])  # 齐次坐标
-        #
+
         # # 获取相机到世界的变换矩阵
         # T_cam2world = obs["camera_param"][get_camera_name(env)]["cam2world_gl"]
         # # T_cam2world = obs["camera_param"][get_camera_name(env)]['extrinsic_cv']
-        #
+
         # # 计算世界坐标
         # P_w = T_cam2world @ P_c  # 矩阵乘法
         # X_w, Y_w, Z_w = P_w[:3]  # 取前三个元素（世界坐标）
@@ -285,7 +313,7 @@ def main(args):
         offset = np.array([0, 0, 0, 0, 0, 0, 0], dtype=np.float16)
         coeffi = np.array([-1, -1, 1, -1, -1, -1, 1], dtype=np.float16)
         p_magnitude = 1
-        q_magnitude = 0.3
+        q_magnitude = 0.3 if current_stage == "pre" else 0
         coeffi[0:3] = coeffi[0:3] * p_magnitude
         coeffi[3:6] = coeffi[3:6] * q_magnitude
         action = (action - offset) * coeffi
@@ -298,7 +326,8 @@ def main(args):
             object_transformation_matrix_world,
             gripper_transformation_matrix_world,
         )
-        if dist_points < 0.02 and angle_degrees < 2:
+        angle_degrees_within_limit = angle_degrees < 2 if current_stage == "pre" else True
+        if dist_points < 0.02 and angle_degrees_within_limit:
             action[6] = grasp_state.end
             stage.popleft()
             if len(stage) > 0:
@@ -309,9 +338,6 @@ def main(args):
         # #####################################################################
 
         # ############################## Track & Info ##############################
-        intrinsic_matrix = obs["camera_param"][get_camera_name(env)]["intrinsic_cv"]
-        camera_extrinsic = obs["camera_param"][get_camera_name(env)]["extrinsic_cv"]
-
         # Convert to camera coordinates
         object_camera_pos = coordination_transform.world_to_camera(object_transformation_matrix_world, camera_extrinsic)
         gripper_camera_pos = coordination_transform.world_to_camera(
@@ -319,8 +345,8 @@ def main(args):
         )
 
         # Project to 2D
-        object_2d = coordination_transform.project_to_image(object_camera_pos, intrinsic_matrix)
-        gripper_2d = coordination_transform.project_to_image(gripper_camera_pos, intrinsic_matrix)
+        object_2d = coordination_transform.project_to_image(object_camera_pos, camera_intrinsic)
+        gripper_2d = coordination_transform.project_to_image(gripper_camera_pos, camera_intrinsic)
 
         # Draw the projected points on the image
         # Print object_2d and gripper_2d on the image
@@ -332,10 +358,15 @@ def main(args):
             gripper=[-100, -50],
         )
 
-        gt_2d = coordination_transform.project_to_image(
-            coordination_transform.world_to_camera(actors.obj.get_pose().to_transformation_matrix(), camera_extrinsic),
-            intrinsic_matrix,
-        )
+        try:
+            gt_2d = coordination_transform.project_to_image(
+                coordination_transform.world_to_camera(
+                    actors.obj.get_pose().to_transformation_matrix(), camera_extrinsic
+                ),
+                camera_intrinsic,
+            )
+        except:
+            gt_2d = None
         if gt_2d is not None:
             _object_2d = visualizer.nparray_to_string(gt_2d, DIGITS)
             _object_camera_pos = visualizer.nparray_to_string(object_camera_pos, DIGITS)
@@ -428,7 +459,10 @@ def main(args):
             # Draw an arrow from key_points.first_a0.p2d to key_points.post_a0.p2d
             start_point = (int(key_points.first_a0.p2d[0]), int(key_points.first_a0.p2d[1]))
             end_point = (int(key_points.post_a0.p2d[0]), int(key_points.post_a0.p2d[1]))
+            # start_point = (int(key_points.first_a0.p2d[1]), int(key_points.first_a0.p2d[0]))
+            # end_point = (int(key_points.post_a0.p2d[1]), int(key_points.post_a0.p2d[0]))
             draw.line([start_point, end_point], fill="red", width=3)
+            draw.line([(10, 10), (50, 10)], fill="yellow", width=2)
             draw.polygon(
                 [end_point, (end_point[0] - 5, end_point[1] - 5), (end_point[0] + 5, end_point[1] - 5)], fill="red"
             )
@@ -439,23 +473,25 @@ def main(args):
             "frames_are_different": frames_are_different,
             "info": f"{visualizer.nparray_to_string(prev_info.tcp_last_pose, DIGITS)} \t-> {visualizer.nparray_to_string(action, DIGITS)} \t-> {visualizer.nparray_to_string(actors.tcp.pose.p, DIGITS)}",
         }
-        # ##############################################################################
 
         image = np.array(image_pil)
         frames.append(image)
+        # ##############################################################################
 
         prev_info.tcp_last_pose = actors.tcp.pose.p
         prev_info.prev_image = image  # Update prev_info.prev_image to current image
         prev_info.prev_depth = depth  # Update prev_info.prev_depth to current depth
 
+        # ################################### action ###################################
         if done:
             break
         else:
             obs, reward, done, truncated, info = env.step(action)
         image = get_image_from_maniskill2_obs_dict(env, obs)
+        # ##############################################################################
 
         print_progress(
-            f'\r[{current_stage}] {current_step} [{not np.all(actors.tcp.pose.p == prev_info.tcp_last_pose)}] \t| action: {visualizer.nparray_to_string(action, DIGITS)} \t| {visualizer.nparray_to_string(obs["extra"]["tcp_pose"][0:3], DIGITS)}\t'
+            f"\r[{current_stage}] {current_step} [{not np.all(actors.tcp.pose.p == prev_info.tcp_last_pose)}] \t| action: {visualizer.nparray_to_string(action, DIGITS)} \t| {visualizer.nparray_to_string(actors.tcp.pose.p, DIGITS)}\t"
         )
         current_step += 1
 
@@ -497,17 +533,32 @@ if __name__ == "__main__":
     parser.add_argument(
         "--task_name",
         type=str,
-        default="google_robot_pick_object",
+        default="google_robot_open_drawer",
         help="'google_robot_pick_coke_can', 'google_robot_pick_object', 'google_robot_move_near', 'google_robot_open_drawer', 'google_robot_close_drawer', 'google_robot_place_in_closed_drawer', 'widowx_spoon_on_towel', 'widowx_carrot_on_plate', 'widowx_stack_cube', 'widowx_put_eggplant_in_basket'",
     )
     args = parser.parse_args()
 
-    main(args)
+    print("\n" + "*" * 50 + "\n" + "*" + " " * 21 + "start" + " " * 22 + "*\n" + "*" * 50 + "\n")
 
-    # for task_name in ['google_robot_pick_coke_can', 'google_robot_pick_object', 'google_robot_move_near', 'google_robot_open_drawer', 'google_robot_close_drawer', 'google_robot_place_in_closed_drawer', 'widowx_spoon_on_towel', 'widowx_carrot_on_plate', 'widowx_stack_cube', 'widowx_put_eggplant_in_basket']:
-    #     args.task_name = task_name
-    #     try:
-    #         main(args)
-    #     except Exception as e:
-    #         print(f"        >>> Error in task {task_name}: {e}")
-    #         continue
+    # main(args)
+    # exit(0)
+    args.output_dir = os.path.join(args.output_dir, run_date)
+    for task_name in [
+        "google_robot_pick_coke_can",
+        "google_robot_pick_object",
+        "google_robot_move_near",
+        "google_robot_open_drawer",
+        "google_robot_close_drawer",
+        "google_robot_place_in_closed_drawer",
+        "widowx_spoon_on_towel",
+        "widowx_carrot_on_plate",
+        "widowx_stack_cube",
+        "widowx_put_eggplant_in_basket",
+    ]:
+        args.task_name = task_name
+        print(f"\n    >>> Running task {task_name}")
+        try:
+            main(args)
+        except Exception as e:
+            print(f"        >>> Error in task {task_name}: {e}")
+            continue

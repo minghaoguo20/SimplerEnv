@@ -88,13 +88,29 @@ class sim_util:
         return depth
 
     @staticmethod
+    def get_pcd_positions(camera):
+        """
+        get point cloud data from camera
+        """
+        camera.take_picture()
+        # 获取相机坐标系中的点云数据
+        position = camera.get_float_texture("Position")  # [H, W, 4]
+        # 只保留深度值小于1的点
+        points_opengl = position[..., :3][position[..., 3] < 1]
+        # 获取相机的位姿并计算转换矩阵
+        model_matrix = camera.get_model_matrix()  # 获取从OpenGL相机坐标系到SAPIEN世界坐标系的转换矩阵
+        # 将点云转换到世界坐标系中
+        points_world = points_opengl @ model_matrix[:3, :3].T + model_matrix[:3, 3]
+        return points_world
+
+    @staticmethod
     def extract_objects_from_env(env):
         """
         提取当前环境中所有潜在的目标物体（如 can、towel、drawer handle）。
-        
+
         Args:
             env: ManiSkill2Real2Sim 的环境对象
-        
+
         Returns:
             object_list: 包含所有目标物体名称的列表
         """
@@ -636,6 +652,22 @@ class coordination_transform:
         # return T_world_tcp
 
     @staticmethod
+    def position_to_camera(world_position_matrix, camera_extrinsic):
+        """
+        Convert a 3D world position to camera coordinate system.
+        Args:
+            world_position_matrix: np.ndarray (3,), position in world frame [x, y, z]
+            camera_extrinsic: np.ndarray (4, 4), camera extrinsic matrix (world → camera)
+        Returns:
+            np.ndarray (3,), transformed 3D coordinates in camera space
+        """
+        world_pos_homogeneous = np.append(world_position_matrix, 1)  # Convert to homogeneous [x, y, z, 1]
+
+        # Transform to camera coordinate frame
+        camera_pos_homogeneous = camera_extrinsic @ world_pos_homogeneous
+        return camera_pos_homogeneous[:3]  # Drop the homogeneous coordinate
+
+    @staticmethod
     def world_to_camera(world_pose_matrix, camera_extrinsic):
         """
         Convert a 3D world pose to camera coordinate system.
@@ -653,12 +685,12 @@ class coordination_transform:
         return camera_pos_homogeneous[:3]  # Drop the homogeneous coordinate
 
     @staticmethod
-    def project_to_image(camera_pos, intrinsic_matrix):
+    def project_to_image(camera_pos, camera_intrinsic):
         """
         Project a 3D point in camera space to 2D image space.
         Args:
             camera_pos: np.ndarray (3,), position in camera space [X, Y, Z]
-            intrinsic_matrix: np.ndarray (3, 3), camera intrinsic matrix
+            camera_intrinsic: np.ndarray (3, 3), camera intrinsic matrix
         Returns:
             np.ndarray (2,), 2D image coordinates [u, v]
         """
@@ -667,7 +699,7 @@ class coordination_transform:
             return None  # Point is behind the camera
 
         # Apply intrinsic matrix: [u, v, 1] = K @ [X, Y, Z]
-        uv_homogeneous = intrinsic_matrix @ np.array([X, Y, Z])
+        uv_homogeneous = camera_intrinsic @ np.array([X, Y, Z])
         u, v = uv_homogeneous[:2] / uv_homogeneous[2]  # Normalize by depth (Z)
 
         return np.array([u, v])
