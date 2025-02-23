@@ -1,10 +1,24 @@
 {
     "google_robot_pick_coke_can": {
         "gripper_action": 0,
-        "rotation": [
-            0.22,
-            -0.41,
-            0.34
+        "quaternion": [
+            1,
+            0,
+            0,
+            0
+        ]
+    },
+    "google_robot_pick_object": {
+        "position": [
+            0,
+            0,
+            0
+        ],
+        "quaternion": [
+            1,
+            0,
+            0,
+            0
         ]
     }
 }

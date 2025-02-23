@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 import tempfile
 import torch
 from PIL import Image
@@ -13,6 +14,16 @@ import open3d as o3d
 import sys
 from io import BytesIO
 import sapien.core as sapien
+
+
+@dataclass
+class KeyPoint:
+    p2d: any = None
+    p3d: any = None
+    matrix: any = None
+
+    def p3d_to_matrix(self):
+        self.matrix = coordination_transform.pose_to_transformation_matrix(self.p3d)
 
 
 class visualizer:
@@ -45,6 +56,10 @@ class visualizer:
 
 
 class sim_util:
+    """
+    action space limit: env.unwrapped.action_space
+    """
+
     @staticmethod
     def get_link(links, name):
         for obj in links:
@@ -71,6 +86,46 @@ class sim_util:
         depth = -position[..., 2]
 
         return depth
+
+    @staticmethod
+    def extract_objects_from_env(env):
+        """
+        提取当前环境中所有潜在的目标物体（如 can、towel、drawer handle）。
+        
+        Args:
+            env: ManiSkill2Real2Sim 的环境对象
+        
+        Returns:
+            object_list: 包含所有目标物体名称的列表
+        """
+        target_objects = ["can", "towel", "drawer handle"]  # 目标物体关键词
+        object_list = set()  # 使用 set 以自动去重
+
+        # 1. 从 model_db 里提取可能的目标物体
+        for obj_name in env.model_db.keys():
+            if any(keyword in obj_name.lower() for keyword in target_objects):
+                object_list.add(obj_name)
+
+        # 2. 从 model_ids 里筛选目标物体
+        for obj_name in env.model_ids:
+            if any(keyword in obj_name.lower() for keyword in target_objects):
+                object_list.add(obj_name)
+
+        # 3. 解析 articulations（比如抽屉和把手）
+        if hasattr(env, "get_articulations"):
+            for articulation in env.get_articulations():
+                if hasattr(articulation, "name") and articulation.name:
+                    if any(keyword in articulation.name.lower() for keyword in target_objects):
+                        object_list.add(articulation.name)
+
+        # 4. 解析 actors（如果某些物体是单独的 actor）
+        if hasattr(env, "get_actors"):
+            for actor in env.get_actors():
+                if hasattr(actor, "name") and actor.name:
+                    if any(keyword in actor.name.lower() for keyword in target_objects):
+                        object_list.add(actor.name)
+
+        return list(object_list)
 
 
 def print_progress(info):
@@ -309,6 +364,10 @@ def save_images_temp(image_list):
     image_paths = []
 
     for idx, img in enumerate(image_list):
+        if img is None:
+            image_paths.append(None)
+            continue
+
         if isinstance(img, torch.Tensor):
             img = img.cpu().numpy()  # Convert tensor to NumPy array
 
@@ -366,14 +425,24 @@ def rdt_api(
     instruction=None, image_path=None, image_previous_path=None, depth_path=None, depth_previous_path=None, port=5003
 ):
     url = f"http://localhost:{port}/inference"
+    # data = {
+    #     "instruction": instruction,
+    #     "image_path": image_path,
+    #     "image_previous_path": image_previous_path,
+    #     "depth_path": depth_path,
+    #     "depth_previous_path": depth_previous_path,
+    # }
     data = {
-        "instruction": instruction,
-        "image_path": image_path,
-        "image_previous_path": image_previous_path,
-        "depth_path": depth_path,
-        "depth_previous_path": depth_previous_path,
+        key: value
+        for key, value in {
+            "instruction": instruction,
+            "image_path": image_path,
+            "image_previous_path": image_previous_path,
+            "depth_path": depth_path,
+            "depth_previous_path": depth_previous_path,
+        }.items()
+        if value is not None
     }
-
     response = requests.post(url, json=data)
     if response.status_code == 200:
         result = response.json()
@@ -398,6 +467,12 @@ def load_json_data(data_file: str):
 
 
 class hyperparams:
+    @staticmethod
+    def get_hyper(task_name: str, hyper: str, data_file: str):
+        """Retrieve the rotation values for a specific task from the JSON file."""
+        data = load_json_data(data_file)
+        return data.get(task_name, {}).get(hyper, None)
+
     @staticmethod
     def get_gripper_action(task_name: str, data_file: str):
         """Retrieve the gripper action for a specific task from the JSON file."""
@@ -504,7 +579,7 @@ class coordination_transform:
         return axis * theta  # 轴角格式: 轴 * 角度
 
     @staticmethod
-    def p_q_to_transformation_matrix(tcp_pose):
+    def pose_to_transformation_matrix(input_pose):
         """
         Convert a TCP pose (position + quaternion) to a 4x4 transformation matrix in world frame.
 
@@ -514,21 +589,51 @@ class coordination_transform:
         Returns:
             T_world_tcp: np.ndarray of shape (4, 4), transformation matrix of TCP in world frame
         """
-        # 提取位置
-        position = tcp_pose[:3]  # (x, y, z)
 
-        # 修正四元数顺序 (qw, qx, qy, qz) → (qx, qy, qz, qw)
-        quaternion = np.array([tcp_pose[4], tcp_pose[5], tcp_pose[6], tcp_pose[3]])  # (qx, qy, qz, qw) → (x, y, z, w)
+        """
+        Convert a TCP pose (position + quaternion) to a 4x4 transformation matrix in world frame.
 
-        # 计算旋转矩阵
-        rotation_matrix = Rotation.from_quat(quaternion).as_matrix()  # (3,3) 旋转矩阵
+        Args:
+            input_pose: Either a numpy array of shape (7,) [x, y, z, qw, qx, qy, qz],
+                        or a Pose object with position (3,) and quaternion (4,).
 
-        # 构造 4×4 齐次变换矩阵
+        Returns:
+            T_world_tcp: np.ndarray of shape (4, 4), transformation matrix of TCP in world frame
+        """
+        if isinstance(input_pose, sapien.Pose):
+            position = input_pose.p
+            quaternion = input_pose.q
+        elif isinstance(input_pose, np.ndarray) and input_pose.shape == (7,):
+            position = input_pose[:3]
+            quaternion = np.array([input_pose[4], input_pose[5], input_pose[6], input_pose[3]])  # (qx, qy, qz, qw)
+        else:
+            raise ValueError("Invalid input: expected Pose object or np.array of shape (7,)")
+
+        # Compute rotation matrix
+        rotation_matrix = Rotation.from_quat(quaternion).as_matrix()  # (3,3) rotation matrix
+
+        # Construct 4×4 homogeneous transformation matrix
         T_world_tcp = np.eye(4)
-        T_world_tcp[:3, :3] = rotation_matrix  # 旋转部分
-        T_world_tcp[:3, 3] = position  # 平移部分
+        T_world_tcp[:3, :3] = rotation_matrix  # Rotation part
+        T_world_tcp[:3, 3] = position  # Translation part
 
         return T_world_tcp
+
+        # # 提取位置
+        # position = input_pose[:3]  # (x, y, z)
+
+        # # 修正四元数顺序 (qw, qx, qy, qz) → (qx, qy, qz, qw)
+        # quaternion = np.array([input_pose[4], input_pose[5], input_pose[6], input_pose[3]])  # (qx, qy, qz, qw) → (x, y, z, w)
+
+        # # 计算旋转矩阵
+        # rotation_matrix = Rotation.from_quat(quaternion).as_matrix()  # (3,3) 旋转矩阵
+
+        # # 构造 4×4 齐次变换矩阵
+        # T_world_tcp = np.eye(4)
+        # T_world_tcp[:3, :3] = rotation_matrix  # 旋转部分
+        # T_world_tcp[:3, 3] = position  # 平移部分
+
+        # return T_world_tcp
 
     @staticmethod
     def world_to_camera(world_pose_matrix, camera_extrinsic):
@@ -566,6 +671,47 @@ class coordination_transform:
         u, v = uv_homogeneous[:2] / uv_homogeneous[2]  # Normalize by depth (Z)
 
         return np.array([u, v])
+
+    @staticmethod
+    def dist_2d(point1, point2):
+        """
+        Calculate the 2D Euclidean distance between two points.
+        Args:
+            point1: np.ndarray (2,), [x1, y1]
+            point2: np.ndarray (2,), [x2, y2]
+        Returns:
+            float, Euclidean distance between the two points
+        """
+        return np.linalg.norm(point1 - point2)
+
+    @staticmethod
+    def compute_pre_pose(object_position, tcp_quaternion, d=0.1):
+        """
+        计算抓取位姿（grasp_pose）
+
+        参数:
+        - object_position: np.ndarray (3,) -> 物体中心的位置 (x, y, z)
+        - tcp_quaternion: np.ndarray (4,) -> TCP 的方向 (w, x, y, z)
+        - d: float -> 预抓取到物体的距离 (默认 0.1m)
+
+        返回:
+        - grasp_pose: Pose -> 计算出的抓取位姿 (position, orientation)
+        """
+        # 计算 TCP 的旋转矩阵
+        tcp_quaternion_corrected = np.array(
+            [tcp_quaternion[1], tcp_quaternion[2], tcp_quaternion[3], tcp_quaternion[0]]
+        )
+        tcp_rotation = Rotation.from_quat(tcp_quaternion_corrected).as_matrix()
+
+        # 计算 TCP 的 Z 轴方向（抓取方向）
+        tcp_forward_vector = tcp_rotation[:, 2]  # Z 轴方向
+
+        # 计算抓取位置（沿 TCP 方向前进 d）
+        grasp_position = object_position - d * tcp_forward_vector
+
+        # 返回抓取位姿
+        grasp_pose = sapien.Pose(grasp_position, tcp_quaternion)
+        return grasp_pose
 
 
 class test_func:
