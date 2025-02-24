@@ -1,23 +1,26 @@
-import shutil
-import tempfile
-import torch
-import requests
-import ast
-import open3d as o3d
-import sys
+# CUDA_VISIBLE_DEVICES=3 python demo/rdt_demo.py --task_names google_robot_pick_coke_can --repeat_n 1
+# CUDA_VISIBLE_DEVICES=3 python demo/rdt_demo.py --task_names google_robot_pick_coke_can google_robot_move_near --repeat_n 2
 
-import argparse
-import site
 import os
-import simpler_env
-from simpler_env.utils.env.observation_utils import get_image_from_maniskill2_obs_dict
-import mediapy
-import sapien.core as sapien
+import json
+import site
+import argparse
+from collections import deque
+from datetime import datetime
+from types import SimpleNamespace
+import warnings
+
+import numpy as np
 from transformers import pipeline
 from transformers import DPTImageProcessor, DPTForDepthEstimation
-import numpy as np
-from collections import deque
+from scipy.spatial.transform import Rotation
+import mediapy
 from PIL import Image, ImageDraw, ImageFont
+
+import simpler_env
+from simpler_env.utils.env.observation_utils import get_image_from_maniskill2_obs_dict
+import sapien.core as sapien
+
 from rdt_util import (
     create_point_cloud,
     depth_api,
@@ -27,16 +30,13 @@ from rdt_util import (
     save_images_temp,
     print_progress,
     get_camera_name,
+    timer,
     visualizer,
     coordination_transform,
     sim_util,
     hyperparams,
     KeyPoint,
 )
-from datetime import datetime
-from scipy.spatial.transform import Rotation
-from types import SimpleNamespace
-import warnings
 from debug_util import setup_debugger
 
 if __name__ == "__main__":
@@ -52,7 +52,7 @@ FONT_SIZE = 14
 font = ImageFont.truetype("DejaVuSans.ttf", FONT_SIZE)
 
 
-def main(args):
+def _main(args):
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_idx
     site.main()
 
@@ -68,8 +68,9 @@ def main(args):
 
     obs, reset_info = env.reset()
     instruction = env.get_language_instruction()
-    print("Reset info", reset_info)
-    print("Instruction", instruction)
+    print()
+    print("Reset info: ", reset_info)
+    print("Instruction:", instruction)
 
     try:
         actors = SimpleNamespace(obj=env.unwrapped.obj, tcp=env.unwrapped.tcp)
@@ -79,11 +80,11 @@ def main(args):
     # robot_link_gripper_tcp_at_world = sim_util.get_link(robot.get_links(), "link_gripper_tcp")
     # scene: sapien.Scene = env.unwrapped._scene
 
-    frames = []
+    save_video = SimpleNamespace(w_annotation=[], origianl=[])
     frames_save_dir = os.path.join(args.output_dir, f"{task_info}_{task_name}")
     os.makedirs(frames_save_dir, exist_ok=True)
-    print(f">>> Saving frames to: {frames_save_dir}")
-    print(f">>> TimeStamp: {date_now.strftime('%H%M%S')}")
+    # print(f">>> Saving frames to: {frames_save_dir}")
+    # print(f">>> TimeStamp: {date_now.strftime('%H%M%S')}")
 
     done, truncated = False, False
 
@@ -106,7 +107,7 @@ def main(args):
 
     # [todo] modeify here
     # quaternion = np.array(hyperparams.get_hyper(task_name, "quaternion", args.simpler_data_file))
-    quaternion = actors.tcp.pose.q # w, x, y, z
+    quaternion = actors.tcp.pose.q  # w, x, y, z
     key_points.pre.p3d.set_q(quaternion)
     key_points.first.p3d.set_q(quaternion)
     key_points.post.p3d.set_q(quaternion)
@@ -132,6 +133,7 @@ def main(args):
 
     # ############################## image preprocess ##############################
     image = get_image_from_maniskill2_obs_dict(env, obs)
+    image_original = image.copy()
     # depth = None
     depth = sim_util.get_depth(env.unwrapped._scene, camera)  # use depth from scene
     # depth = depth_api(image=image, api_url_file=args.api_url_file) # use api
@@ -195,8 +197,14 @@ def main(args):
     )
     key_points.first.p3d.set_p(nearest_point.p3d.p)
 
-    nearest_point = min(pcd_points, key=lambda point: coordination_transform.dist_2d(key_points.post_a0.p2d, point.p2d))
-    key_points.post.p3d.set_p(nearest_point.p3d.p)
+    _post_from_file = hyperparams.get_hyper(task_name, "post_position", args.simpler_data_file)
+    if _post_from_file is not None:
+        nearest_point.p3d.set_p(_post_from_file)
+    else:
+        nearest_point = min(
+            pcd_points, key=lambda point: coordination_transform.dist_2d(key_points.post_a0.p2d, point.p2d)
+        )
+        key_points.post.p3d.set_p(nearest_point.p3d.p)
     # ###############################################################################
 
     # ################################## key point ##################################
@@ -229,9 +237,9 @@ def main(args):
     # ################################################################################
     """
 
-
     # ################################## def stages ##################################
     stage = deque(["pre", "first", "post"])
+
     def get_point_and_grasp(current_stage, key_points=key_points):
         if current_stage == "pre":
             object_point = key_points.pre
@@ -475,7 +483,8 @@ def main(args):
         }
 
         image = np.array(image_pil)
-        frames.append(image)
+        save_video.w_annotation.append(image)
+        save_video.origianl.append(image_original)
         # ##############################################################################
 
         prev_info.tcp_last_pose = actors.tcp.pose.p
@@ -483,39 +492,92 @@ def main(args):
         prev_info.prev_depth = depth  # Update prev_info.prev_depth to current depth
 
         # ################################### action ###################################
-        if done:
-            break
-        else:
+        if not done:
             obs, reward, done, truncated, info = env.step(action)
         image = get_image_from_maniskill2_obs_dict(env, obs)
+        image_original = image.copy()
         # ##############################################################################
 
-        print_progress(
-            f"\r[{current_stage}] {current_step} [{not np.all(actors.tcp.pose.p == prev_info.tcp_last_pose)}] \t| action: {visualizer.nparray_to_string(action, DIGITS)} \t| {visualizer.nparray_to_string(actors.tcp.pose.p, DIGITS)}\t"
-        )
+        # print_progress(
+        #     f"\r[{current_stage}] {current_step} [{not np.all(actors.tcp.pose.p == prev_info.tcp_last_pose)}] \t| action: {visualizer.nparray_to_string(action, DIGITS)} \t| {visualizer.nparray_to_string(actors.tcp.pose.p, DIGITS)}\t"
+        # )
         current_step += 1
 
     episode_stats = info.get("episode_stats", {})
     print("Episode stats", episode_stats)
     # Save the video instead of showing it
-    video_save_path = os.path.join(frames_save_dir, f"{task_name}_{run_date}.mp4")
-    mediapy.write_video(video_save_path, frames, fps=10)
-    print(f"Video saved to {video_save_path}")
+    str_done = "success" if done else "failure"
+    video_save_path = os.path.join(frames_save_dir, f"{task_name}_{run_date}_{str_done}.mp4")
+    video_original_save_path = os.path.join(frames_save_dir, f"{task_name}_{run_date}_{str_done}_original.mp4")
+    mediapy.write_video(video_save_path, save_video.w_annotation, fps=10)
+    mediapy.write_video(video_original_save_path, save_video.origianl, fps=10)
+    print(f"Video saved to {frames_save_dir}")
     env.close()
-    # Save pose_action_pose to a text file
-    pose_action_save_path = os.path.join(frames_save_dir, f"{task_name}_{run_date}_pose_action_pose.txt")
-    with open(pose_action_save_path, "w") as f:
-        for step in pose_action_pose:
-            item = pose_action_pose[step]
-            if item["frames_are_different"]:
-                f.write(f'{step}\t{item["info"]}\n')
-        f.write("\n" + "*" * 50 + "\n\n")
-        for step in pose_action_pose:
-            item = pose_action_pose[step]
-            changed = "[Changed]" if item["frames_are_different"] else "[No Move]"
-            f.write(f'{step} \t{changed} \t{item["info"]} \n')
-        f.write("\n" + "*" * 50 + "\n\n")
-    print(f"Pose action data saved to {pose_action_save_path}")
+    return done, frames_save_dir, instruction
+    # # Save pose_action_pose to a text file
+    # pose_action_save_path = os.path.join(frames_save_dir, f"{task_name}_{run_date}_pose_action_pose.txt")
+    # with open(pose_action_save_path, "w") as f:
+    #     for step in pose_action_pose:
+    #         item = pose_action_pose[step]
+    #         if item["frames_are_different"]:
+    #             f.write(f'{step}\t{item["info"]}\n')
+    #     f.write("\n" + "*" * 50 + "\n\n")
+    #     for step in pose_action_pose:
+    #         item = pose_action_pose[step]
+    #         changed = "[Changed]" if item["frames_are_different"] else "[No Move]"
+    #         f.write(f'{step} \t{changed} \t{item["info"]} \n')
+    #     f.write("\n" + "*" * 50 + "\n\n")
+    # print(f"Pose action data saved to {pose_action_save_path}")
+
+
+@timer
+def main(args):
+    args.output_dir = os.path.join(args.output_dir, run_date)
+    os.makedirs(args.output_dir, exist_ok=True)
+    result = {
+        "metadata": {
+            "time": run_date,
+            "note": args.note,
+            "task_names": args.task_names,
+            "repeat_n": args.repeat_n,
+            "current_dir": os.getcwd(),
+        }
+    }
+    for task_name in args.task_names:
+        visualizer.print_note_section(
+            note=[f"Task: {task_name}", f"Repeat: {args.repeat_n}", f"Output: {args.output_dir}"]
+        )
+        success_arr = {}
+        for exp_n in range(args.repeat_n):
+            args.task_name = task_name
+            try:
+                done, save_dir, instruction = _main(args)
+            except Exception as e:
+                visualizer.print_note_section(note=[f"Error in task {task_name}", f"Error: {e}"])
+                continue
+            success_arr[f"{exp_n:04d}"] = {
+                "done": done,
+                "instruction": instruction,
+                "save_dir": save_dir,
+            }
+        result[task_name] = {
+            "success_arr": success_arr,
+            "success_rate": (
+                sum([1 for k, v in success_arr.items() if v["done"]]) / len(success_arr) if len(success_arr) > 0 else -1
+            ),
+        }
+    args.result_path = os.path.join(args.output_dir, "result.json")
+    with open(args.result_path, "w") as f:
+        json.dump(result, f, indent=4)
+
+    final_info = []
+    for task_name, task_result in result.items():
+        if task_name == "metadata":
+            continue
+        # print(f"Task: {task_name} \t Success Rate: {task_result['success_rate']}")
+        final_info.append(f"Task: {task_name} \t Success Rate: {task_result['success_rate']}")
+    final_info.extend(["", f"Results saved to {args.result_path}"])
+    visualizer.print_note_section(note=final_info)
 
 
 if __name__ == "__main__":
@@ -530,35 +592,42 @@ if __name__ == "__main__":
     parser.add_argument("--api_url_file", type=str, default="demo/api_url.json")
     parser.add_argument("--output_dir", type=str, default="output/rdt")
     parser.add_argument("--note", type=str, default="")
+    parser.add_argument("--result_path", type=str, default="")
+    parser.add_argument("--repeat_n", type=int, default=10)
     parser.add_argument(
-        "--task_name",
+        "--task_names",
         type=str,
-        default="google_robot_open_drawer",
-        help="'google_robot_pick_coke_can', 'google_robot_pick_object', 'google_robot_move_near', 'google_robot_open_drawer', 'google_robot_close_drawer', 'google_robot_place_in_closed_drawer', 'widowx_spoon_on_towel', 'widowx_carrot_on_plate', 'widowx_stack_cube', 'widowx_put_eggplant_in_basket'",
+        nargs="+",
+        default=[
+            "google_robot_pick_coke_can",
+            "google_robot_pick_horizontal_coke_can",
+            "google_robot_pick_vertical_coke_can",
+            "google_robot_pick_standing_coke_can",
+            "google_robot_pick_object",
+            "google_robot_move_near_v0",
+            "google_robot_move_near_v1",
+            "google_robot_move_near",
+            "google_robot_open_drawer",
+            "google_robot_open_top_drawer",
+            "google_robot_open_middle_drawer",
+            "google_robot_open_bottom_drawer",
+            "google_robot_close_drawer",
+            "google_robot_close_top_drawer",
+            "google_robot_close_middle_drawer",
+            "google_robot_close_bottom_drawer",
+            "google_robot_place_in_closed_drawer",
+            "google_robot_place_in_closed_top_drawer",
+            "google_robot_place_in_closed_middle_drawer",
+            "google_robot_place_in_closed_bottom_drawer",
+            "google_robot_place_apple_in_closed_top_drawer",
+            "widowx_spoon_on_towel",
+            "widowx_carrot_on_plate",
+            "widowx_stack_cube",
+            "widowx_put_eggplant_in_basket",
+        ],
+        help="choose from: 'google_robot_pick_coke_can', 'google_robot_pick_horizontal_coke_can', 'google_robot_pick_vertical_coke_can', 'google_robot_pick_standing_coke_can', 'google_robot_pick_object', 'google_robot_move_near_v0', 'google_robot_move_near_v1', 'google_robot_move_near', 'google_robot_open_drawer', 'google_robot_open_top_drawer', 'google_robot_open_middle_drawer', 'google_robot_open_bottom_drawer', 'google_robot_close_drawer', 'google_robot_close_top_drawer', 'google_robot_close_middle_drawer', 'google_robot_close_bottom_drawer', 'google_robot_place_in_closed_drawer', 'google_robot_place_in_closed_top_drawer', 'google_robot_place_in_closed_middle_drawer', 'google_robot_place_in_closed_bottom_drawer', 'google_robot_place_apple_in_closed_top_drawer', 'widowx_spoon_on_towel', 'widowx_carrot_on_plate', 'widowx_stack_cube', 'widowx_put_eggplant_in_basket'",
     )
     args = parser.parse_args()
 
-    print("\n" + "*" * 50 + "\n" + "*" + " " * 21 + "start" + " " * 22 + "*\n" + "*" * 50 + "\n")
-
-    # main(args)
-    # exit(0)
-    args.output_dir = os.path.join(args.output_dir, run_date)
-    for task_name in [
-        "google_robot_pick_coke_can",
-        "google_robot_pick_object",
-        "google_robot_move_near",
-        "google_robot_open_drawer",
-        "google_robot_close_drawer",
-        "google_robot_place_in_closed_drawer",
-        "widowx_spoon_on_towel",
-        "widowx_carrot_on_plate",
-        "widowx_stack_cube",
-        "widowx_put_eggplant_in_basket",
-    ]:
-        args.task_name = task_name
-        print(f"\n    >>> Running task {task_name}")
-        try:
-            main(args)
-        except Exception as e:
-            print(f"        >>> Error in task {task_name}: {e}")
-            continue
+    visualizer.print_note_section(note="RDT Demo")
+    main(args)

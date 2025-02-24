@@ -8,6 +8,8 @@ from scipy.spatial.transform import Rotation
 import numpy as np
 import cv2
 import os
+import time
+import functools
 import subprocess
 import ast
 import open3d as o3d
@@ -53,6 +55,35 @@ class visualizer:
                     else:
                         print(" " * indent + key)
                 visualizer.print_dict_keys(value, indent + 4)  # 递归增加缩进层级
+
+    @staticmethod
+    def print_note_section(note, length: int = 50):
+        """
+        Prints a formatted note section with a border of stars.
+
+        :param note: A string or a list of strings to display in the middle.
+        :param length: The number of stars in the top and bottom border.
+        """
+        if isinstance(note, str):  # Convert single string to a list
+            note = [note]
+
+        max_note_length = max(len(line) for line in note)  # Find longest line in the note
+
+        # Ensure the box is wide enough
+        if length < max_note_length + 6:
+            length = max_note_length + 6
+
+        print()
+
+        border = "*" * length
+        print(border)
+
+        for line in note:
+            padding = (length - len(line) - 2) // 2
+            note_line = "*" + " " * padding + line + " " * (length - len(line) - padding - 2) + "*"
+            print(note_line)
+
+        print(border)
 
 
 class sim_util:
@@ -142,6 +173,23 @@ class sim_util:
                         object_list.add(actor.name)
 
         return list(object_list)
+
+
+def timer(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+
+        elapsed_time = end_time - start_time  # 计算执行时间
+        hours, rem = divmod(elapsed_time, 3600)  # 转换为小时和剩余秒数
+        minutes, seconds = divmod(rem, 60)  # 转换为分钟和剩余秒数
+
+        print(f"Function {func.__name__} took {int(hours):02}:{int(minutes):02}:{seconds:06.3f} (hh:mm:ss.sss)")
+        return result
+
+    return wrapper
 
 
 def print_progress(info):
@@ -762,4 +810,6 @@ if __name__ == "__main__":
     # print(get_rotation("demo", data_file))  # Output: [0.1, 0.2, 0.3]
     # print(load_json_data("demo/api_url.json").get("depth"))
 
-    test_func.test_depth_api()
+    # test_func.test_depth_api()
+
+    visualizer.print_note_section(["Test Section", "hi", "hello"])

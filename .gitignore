@@ -32,6 +32,9 @@ imgui.ini
 nohup.out
 
 output
+output.txt
+output.out
+
 temp_test
 demo/temp_save
 demo/temp.jpg
