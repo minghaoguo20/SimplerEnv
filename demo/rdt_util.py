@@ -17,6 +17,11 @@ import sys
 from io import BytesIO
 import sapien.core as sapien
 import re
+from debug_util import setup_debugger
+
+
+if __name__ == "__main__":
+    setup_debugger(ip_addr="127.0.0.1", port=9501, debug=False)
 
 
 @dataclass
@@ -33,6 +38,7 @@ import json
 import re
 import os
 
+
 class visualizer:
     @staticmethod
     def result_json_to_latex(result_json_file, output_latex_file=None):
@@ -43,66 +49,59 @@ class visualizer:
 
         with open(result_json_file, "r") as file:
             result_json = json.load(file)
-            # assert isinstance(result_json, dict), "Expected result_json to be a dictionary"
+            assert isinstance(result_json, dict), f"Expected 'dict' for result_json but got {type(result_json)}"
 
-        if not isinstance(result_json, dict):
-            raise TypeError("Expected result_json to be a dictionary")
+        google_result = {
+            k: v['success_rate'] for k, v in result_json.items() if 'google_robot' in k
+        }
+        widowx_result = {
+            k: v['success_rate'] for k, v in result_json.items() if 'widowx' in k
+        }
 
-        latex_tables = {}
+        google_robot_task_success_rate = {}
+        for task_name, sub_tasks in google_robot_task_list.items():
+            success_rate_list = [google_result[st] for st in sub_tasks if st in google_result]
+            google_robot_task_success_rate[task_name] = sum(success_rate_list) / len(success_rate_list) if success_rate_list else -1
+        
+        widowx_task_success_rate = {}
+        for task_name, sub_tasks in widowx_task_list.items():
+            success_rate_list = [widowx_result[st] for st in sub_tasks if st in widowx_result]
+            widowx_task_success_rate[task_name] = sum(success_rate_list) / len(success_rate_list) if success_rate_list else -1
+                
+        # [todo] Generate LaTeX tables for Google Robot tasks
 
-        def escape_latex(text):
-            text = re.sub(r'([_\\&%$#{}])', r'\\\1', text)  # Escape special LaTeX characters
-            text = text.replace("\\", "\\textbackslash{}")
-            return text
+        # [todo] Generate LaTeX tables for WidowX tasks
+        def generate_latex_table(title, data):
+            latex_code = f"""
+\\begin{{table}}[!ht]
+    \\centering
+    \\begin{{tabular}}{{cc}}
+        \\toprule
+        Task & Success Rate \\\\
+        \\midrule
+"""
+            for task, rate in data.items():
+                task_safe = task.replace("_", "\\_")
+                latex_code += f"        {task_safe} & {rate:.2f} \\\\ \\midrule\n"
+            # remove the last '\\midrule'
+            latex_code = latex_code[:-10]
+            latex_code += """
+        \\bottomrule
+    \\end{tabular}
+    \\caption{""" + title + """}
+\end{table}
+"""
+            return latex_code
 
-        def generate_latex_table(title, task_list, result_json):
-            if not isinstance(task_list, dict):
-                raise TypeError(f"Expected 'dict' for task_list but got {type(task_list)}")
-
-            table_str = ("\\begin{table}[h]\n"
-                         "\\centering\n"
-                         f"\\caption{{{escape_latex(title)} Task Success Rates}}\n"
-                         "\\begin{tabular}{l l c}\n"
-                         "\\toprule\n"
-                         "Task & Task Name & Success Rate \\\\ \n"
-                         "\\midrule\n")
-            task_avg_success_rate = {}
-
-            for task_category, tasks in task_list.items():
-                if not isinstance(tasks, list):
-                    raise TypeError(f"Expected list for tasks but got {type(tasks)}")
-
-                total_success_rate = 0
-                count = 0
-                for task in tasks:
-                    if task in result_json:
-                        success_rate = result_json[task]["success_rate"]
-                        total_success_rate += success_rate
-                        count += 1
-                        table_str += f"{escape_latex(task_category)} & {escape_latex(task)} & {success_rate:.2f} \\\\ \n"
-
-                if count > 0:
-                    task_avg_success_rate[task_category] = total_success_rate / count
-                else:
-                    task_avg_success_rate[task_category] = 0
-
-            table_str += "\\midrule\nTask & Average Success Rate \\\\ \n\\midrule\n"
-            for task_category, avg_success_rate in task_avg_success_rate.items():
-                table_str += f"{escape_latex(task_category)} & {avg_success_rate:.2f} \\\\ \n"
-
-            table_str += "\\bottomrule\n\\end{tabular}\n\\end{table}"
-            return table_str
-
-        latex_tables["Google Robot Task Details"] = generate_latex_table("Google Robot Task Details", google_robot_task_list, result_json)
-        latex_tables["Google Robot Summary"] = generate_latex_table("Google Robot Summary", google_robot_task_list, result_json)
-        latex_tables["WidowX Task Details"] = generate_latex_table("WidowX Task Details", widowx_task_list, result_json)
-        latex_tables["WidowX Summary"] = generate_latex_table("WidowX Summary", widowx_task_list, result_json)
-
-        with open(output_latex_file, "w") as file:
-            for title, table in latex_tables.items():
-                file.write(f"% {title}\n")
-                file.write(table + "\n\n")
-
+        latex_tables = []
+        latex_tables.append(generate_latex_table("Google Robot Task Success Rates", google_robot_task_success_rate))
+        latex_tables.append(generate_latex_table("WidowX Task Success Rates", widowx_task_success_rate))
+        latex_tables.append(generate_latex_table("Individual Google Robot Task Success Rates", google_result))
+        latex_tables.append(generate_latex_table("Individual WidowX Task Success Rates", widowx_result))
+        
+        with open(output_latex_file, "w") as f:
+            f.write("\n".join(latex_tables))
+        
         return output_latex_file
 
     @staticmethod
@@ -1046,7 +1045,7 @@ class test_func:
 
     @staticmethod
     def result_json_to_latex():
-        result_json_file = "output/rdt/20250225_130325/result.json"
+        result_json_file = "output/rdt/20250226_135951/result.json"
         res = visualizer.result_json_to_latex(result_json_file)
         print(f"saved to {res}")
 
