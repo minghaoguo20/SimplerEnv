@@ -1,5 +1,7 @@
 # CUDA_VISIBLE_DEVICES=3 python demo/rdt_demo.py --task_names google_robot_pick_coke_can --repeat_n 1
 # CUDA_VISIBLE_DEVICES=3 python demo/rdt_demo.py --task_names google_robot_pick_coke_can google_robot_move_near --repeat_n 2
+# CUDA_VISIBLE_DEVICES=3 python demo/rdt_demo.py --repeat_n 10 | tee output.txt
+# CUDA_VISIBLE_DEVICES=3 python demo/rdt_demo.py --task_names google_robot_pick_object google_robot_move_near_v0 google_robot_move_near_v1 google_robot_move_near --repeat_n 2 debug
 
 import os
 import json
@@ -56,7 +58,8 @@ def _main(args):
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_idx
     site.main()
 
-    task_info = run_date + "_" + args.note if len(args.note) > 0 else run_date
+    task_info = run_date + "_" + f"{args.exp_n:04d}"
+    task_info += "_" + args.note if len(args.note) > 0 else ""
     task_name = args.task_name
 
     if "env" in locals():
@@ -549,6 +552,7 @@ def main(args):
         )
         success_arr = {}
         for exp_n in range(args.repeat_n):
+            args.exp_n = exp_n
             args.task_name = task_name
             try:
                 done, save_dir, instruction = _main(args)
@@ -559,15 +563,16 @@ def main(args):
                 "done": done,
                 "instruction": instruction,
                 "save_dir": save_dir,
-            }
+            } 
+            # print(f"Task: {task_name} exp_x: {exp_n} done:{done}")
         result[task_name] = {
             "success_arr": success_arr,
             "success_rate": (
                 sum([1 for k, v in success_arr.items() if v["done"]]) / len(success_arr) if len(success_arr) > 0 else -1
             ),
         }
-    args.result_path = os.path.join(args.output_dir, "result.json")
-    with open(args.result_path, "w") as f:
+    result_path = os.path.join(args.output_dir, "result.json")
+    with open(result_path, "w") as f:
         json.dump(result, f, indent=4)
 
     final_info = []
@@ -576,7 +581,9 @@ def main(args):
             continue
         # print(f"Task: {task_name} \t Success Rate: {task_result['success_rate']}")
         final_info.append(f"Task: {task_name} \t Success Rate: {task_result['success_rate']}")
-    final_info.extend(["", f"Results saved to {args.result_path}"])
+    final_info.extend(["", f"Results saved to {result_path}"])
+    md_path = visualizer.result_json_to_markdown(result_path)
+    final_info.append(f"Markdown: {md_path}")
     visualizer.print_note_section(note=final_info)
 
 
@@ -592,8 +599,9 @@ if __name__ == "__main__":
     parser.add_argument("--api_url_file", type=str, default="demo/api_url.json")
     parser.add_argument("--output_dir", type=str, default="output/rdt")
     parser.add_argument("--note", type=str, default="")
-    parser.add_argument("--result_path", type=str, default="")
+    # parser.add_argument("--result_path", type=str, default="")
     parser.add_argument("--repeat_n", type=int, default=10)
+    parser.add_argument("--exp_n", type=int, default=0)
     parser.add_argument(
         "--task_names",
         type=str,

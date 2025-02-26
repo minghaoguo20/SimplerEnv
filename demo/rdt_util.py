@@ -16,6 +16,7 @@ import open3d as o3d
 import sys
 from io import BytesIO
 import sapien.core as sapien
+import re
 
 
 @dataclass
@@ -28,7 +29,168 @@ class KeyPoint:
         self.matrix = coordination_transform.pose_to_transformation_matrix(self.p3d)
 
 
+import json
+import re
+import os
+
 class visualizer:
+    @staticmethod
+    def result_json_to_latex(result_json_file, output_latex_file=None):
+        if output_latex_file is None:
+            output_latex_file = os.path.splitext(result_json_file)[0] + ".tex"
+
+        google_robot_task_list, widowx_task_list = visualizer.get_task_list()
+
+        with open(result_json_file, "r") as file:
+            result_json = json.load(file)
+            # assert isinstance(result_json, dict), "Expected result_json to be a dictionary"
+
+        if not isinstance(result_json, dict):
+            raise TypeError("Expected result_json to be a dictionary")
+
+        latex_tables = {}
+
+        def escape_latex(text):
+            text = re.sub(r'([_\\&%$#{}])', r'\\\1', text)  # Escape special LaTeX characters
+            text = text.replace("\\", "\\textbackslash{}")
+            return text
+
+        def generate_latex_table(title, task_list, result_json):
+            if not isinstance(task_list, dict):
+                raise TypeError(f"Expected 'dict' for task_list but got {type(task_list)}")
+
+            table_str = ("\\begin{table}[h]\n"
+                         "\\centering\n"
+                         f"\\caption{{{escape_latex(title)} Task Success Rates}}\n"
+                         "\\begin{tabular}{l l c}\n"
+                         "\\toprule\n"
+                         "Task & Task Name & Success Rate \\\\ \n"
+                         "\\midrule\n")
+            task_avg_success_rate = {}
+
+            for task_category, tasks in task_list.items():
+                if not isinstance(tasks, list):
+                    raise TypeError(f"Expected list for tasks but got {type(tasks)}")
+
+                total_success_rate = 0
+                count = 0
+                for task in tasks:
+                    if task in result_json:
+                        success_rate = result_json[task]["success_rate"]
+                        total_success_rate += success_rate
+                        count += 1
+                        table_str += f"{escape_latex(task_category)} & {escape_latex(task)} & {success_rate:.2f} \\\\ \n"
+
+                if count > 0:
+                    task_avg_success_rate[task_category] = total_success_rate / count
+                else:
+                    task_avg_success_rate[task_category] = 0
+
+            table_str += "\\midrule\nTask & Average Success Rate \\\\ \n\\midrule\n"
+            for task_category, avg_success_rate in task_avg_success_rate.items():
+                table_str += f"{escape_latex(task_category)} & {avg_success_rate:.2f} \\\\ \n"
+
+            table_str += "\\bottomrule\n\\end{tabular}\n\\end{table}"
+            return table_str
+
+        latex_tables["Google Robot Task Details"] = generate_latex_table("Google Robot Task Details", google_robot_task_list, result_json)
+        latex_tables["Google Robot Summary"] = generate_latex_table("Google Robot Summary", google_robot_task_list, result_json)
+        latex_tables["WidowX Task Details"] = generate_latex_table("WidowX Task Details", widowx_task_list, result_json)
+        latex_tables["WidowX Summary"] = generate_latex_table("WidowX Summary", widowx_task_list, result_json)
+
+        with open(output_latex_file, "w") as file:
+            for title, table in latex_tables.items():
+                file.write(f"% {title}\n")
+                file.write(table + "\n\n")
+
+        return output_latex_file
+
+    @staticmethod
+    def result_json_to_markdown(result_json_file, output_markdown_file=None):
+        """
+        convert result json to markdown
+        markdown content:
+        table1: Google Robot
+        | task | success rate | task name | task avg success rate |
+        | google_robot_pick_coke_can | 0.9 | pick | 0.75 |
+        | google_robot_pick_horizontal_coke_can | 0.65 |    |    |
+        | google_robot_pick_vertical_coke_can | 0.3 |    |    |
+        | google_robot_pick_standing_coke_can | 0.15 |    |    |
+        | google_robot_pick_object | 0.75 |    |    |
+        | google_robot_move_near_v0 | 0.75 | move | 0.75 |
+        | google_robot_move_near_v1 | 0.75 |    |    |
+        | google_robot_move_near | 0.75 |    |    |
+        ...
+        table2: WidowX
+        | task | success rate | task name | task avg success rate |
+        | widowx_spoon_on_towel | 0.75 | Put Carrot on Plate | 0.75 |
+        | widowx_carrot_on_plate | 0.75 | Stack Blocks | 0.75 |
+        | widowx_stack_cube | 0.75 | Put Spoon on Towel | 0.75 |
+        | widowx_put_eggplant_in_basket | 0.75 | Put Eggplant in Basket | 0.75 |
+        """
+        if output_markdown_file is None:
+            output_markdown_file = result_json_file.replace(".json", ".md")
+
+        google_robot_task_list, widowx_task_list = visualizer.get_task_list()
+
+        with open(result_json_file, "r") as file:
+            result_json = json.load(file)
+
+        # Initialize markdown content
+        markdown_content = ""
+
+        # Process Google Robot tasks
+        markdown_content += "## Google Robot\n"
+        markdown_content += "| task | task name | success rate |\n"
+        markdown_content += "| --- | --- | --- |\n"
+
+        google_robot_task_avg_success_rate = {}
+        for task_category, tasks in google_robot_task_list.items():
+            total_success_rate = 0
+            for task in tasks:
+                if task in result_json:
+                    success_rate = result_json[task]["success_rate"]
+                    total_success_rate += success_rate
+                    markdown_content += f"| {task_category} | {task} | {success_rate} |\n"
+            avg_success_rate = total_success_rate / len(tasks)
+            google_robot_task_avg_success_rate[task_category] = avg_success_rate
+
+        # Add average success rates for Google Robot tasks
+        markdown_content += "\n"
+        markdown_content += "| task | task avg success rate |\n"
+        markdown_content += " --- | --- |\n"
+        for task_category, avg_success_rate in google_robot_task_avg_success_rate.items():
+            markdown_content += f"| {task_category} | {avg_success_rate} |\n"
+
+        # Process WidowX tasks
+        markdown_content += "\n## WidowX\n"
+        markdown_content += "| task | task name | success rate |\n"
+        markdown_content += "| --- | --- | --- |\n"
+
+        widowx_task_avg_success_rate = {}
+        for task_category, tasks in widowx_task_list.items():
+            total_success_rate = 0
+            for task in tasks:
+                if task in result_json:
+                    success_rate = result_json[task]["success_rate"]
+                    total_success_rate += success_rate
+                    markdown_content += f"| {task_category} | {task} | {success_rate} |\n"
+            avg_success_rate = total_success_rate / len(tasks)
+            widowx_task_avg_success_rate[task_category] = avg_success_rate
+
+        # Add average success rates for WidowX tasks
+        markdown_content += "\n"
+        markdown_content += "| task | task avg success rate |\n"
+        markdown_content += " --- | --- |\n"
+        for task_category, avg_success_rate in widowx_task_avg_success_rate.items():
+            markdown_content += f"| {task_category} | {avg_success_rate} |\n"
+
+        # Write markdown content to file
+        with open(output_markdown_file, "w") as file:
+            file.write(markdown_content)
+
+        return output_markdown_file
+
     @staticmethod
     def nparray_to_string(nparray, DIGITS):
         """
@@ -84,6 +246,79 @@ class visualizer:
             print(note_line)
 
         print(border)
+
+    @staticmethod
+    def get_task_list():
+        google_robot_task_list = {
+            "pick": [
+                "google_robot_pick_coke_can",
+                "google_robot_pick_horizontal_coke_can",
+                "google_robot_pick_vertical_coke_can",
+                "google_robot_pick_standing_coke_can",
+                "google_robot_pick_object",
+            ],
+            "move": [
+                "google_robot_move_near_v0",
+                "google_robot_move_near_v1",
+                "google_robot_move_near",
+            ],
+            "open": [
+                "google_robot_open_drawer",
+                "google_robot_open_top_drawer",
+                "google_robot_open_middle_drawer",
+                "google_robot_open_bottom_drawer",
+                "google_robot_close_drawer",
+                "google_robot_close_top_drawer",
+                "google_robot_close_middle_drawer",
+                "google_robot_close_bottom_drawer",
+            ],
+            "place": [
+                "google_robot_place_in_closed_drawer",
+                "google_robot_place_in_closed_top_drawer",
+                "google_robot_place_in_closed_middle_drawer",
+                "google_robot_place_in_closed_bottom_drawer",
+                "google_robot_place_apple_in_closed_top_drawer",
+            ],
+        }
+
+        widowx_task_list = {
+            "Put Carrot on Plate": ["widowx_spoon_on_towel"],
+            "Stack Blocks": ["widowx_carrot_on_plate"],
+            "Put Spoon on Towel": ["widowx_stack_cube"],
+            "Put Eggplant in Basket": ["widowx_put_eggplant_in_basket"],
+        }
+
+        return google_robot_task_list, widowx_task_list
+
+    @staticmethod
+    def get_robot_and_task(task_name: str):
+        """
+        根据任务名称获取对应的机器人和任务。
+        Args:
+            task_name: 任务名称
+        Returns:
+            robot_name: 机器人名称
+            task: 任务名称
+        """
+        if "google_robot" in task_name:
+            robot_name = "google_robot"
+        elif "widowx" in task_name:
+            robot_name = "widowx"
+        else:
+            raise NotImplementedError()
+
+        google_robot_task_list, widowx_task_list = sim_util.get_task_list()
+
+        if robot_name == "google_robot":
+            for task, task_list in google_robot_task_list.items():
+                if task_name in task_list:
+                    return robot_name, task
+        elif robot_name == "widowx":
+            for task, task_list in widowx_task_list.items():
+                if task_name in task_list:
+                    return robot_name, task
+        else:
+            raise NotImplementedError()
 
 
 class sim_util:
@@ -796,12 +1031,24 @@ class coordination_transform:
 
 class test_func:
     @staticmethod
-    def test_depth_api():
+    def depth_api():
         depth_map = depth_api("/home/xurongtao/minghao/SimplerEnv/demo/temp.jpg")
         if depth_map is not None:
             save_path = "/home/xurongtao/minghao/SimplerEnv/demo/temp_depth_map.png"
             cv2.imwrite(save_path, depth_map)
             print(f"Depth map saved to {save_path}")
+
+    @staticmethod
+    def result_json_to_markdown():
+        result_json_file = "output/rdt/20250225_130325/result.json"
+        md_path = visualizer.result_json_to_markdown(result_json_file)
+        print(f"Markdown file saved to: {md_path}")
+
+    @staticmethod
+    def result_json_to_latex():
+        result_json_file = "output/rdt/20250225_130325/result.json"
+        res = visualizer.result_json_to_latex(result_json_file)
+        print(f"saved to {res}")
 
 
 if __name__ == "__main__":
@@ -810,6 +1057,6 @@ if __name__ == "__main__":
     # print(get_rotation("demo", data_file))  # Output: [0.1, 0.2, 0.3]
     # print(load_json_data("demo/api_url.json").get("depth"))
 
-    # test_func.test_depth_api()
+    test_func.result_json_to_latex()
 
-    visualizer.print_note_section(["Test Section", "hi", "hello"])
+    # visualizer.print_note_section(["Test Section", "hi", "hello"])
