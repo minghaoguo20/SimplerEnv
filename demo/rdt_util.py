@@ -7,6 +7,7 @@ import json
 from scipy.spatial.transform import Rotation
 import numpy as np
 import cv2
+from types import SimpleNamespace
 import os
 import time
 import functools
@@ -51,23 +52,23 @@ class visualizer:
             result_json = json.load(file)
             assert isinstance(result_json, dict), f"Expected 'dict' for result_json but got {type(result_json)}"
 
-        google_result = {
-            k: v['success_rate'] for k, v in result_json.items() if 'google_robot' in k
-        }
-        widowx_result = {
-            k: v['success_rate'] for k, v in result_json.items() if 'widowx' in k
-        }
+        google_result = {k: v["success_rate"] for k, v in result_json.items() if "google_robot" in k}
+        widowx_result = {k: v["success_rate"] for k, v in result_json.items() if "widowx" in k}
 
         google_robot_task_success_rate = {}
         for task_name, sub_tasks in google_robot_task_list.items():
             success_rate_list = [google_result[st] for st in sub_tasks if st in google_result]
-            google_robot_task_success_rate[task_name] = sum(success_rate_list) / len(success_rate_list) if success_rate_list else -1
-        
+            google_robot_task_success_rate[task_name] = (
+                sum(success_rate_list) / len(success_rate_list) if success_rate_list else -1
+            )
+
         widowx_task_success_rate = {}
         for task_name, sub_tasks in widowx_task_list.items():
             success_rate_list = [widowx_result[st] for st in sub_tasks if st in widowx_result]
-            widowx_task_success_rate[task_name] = sum(success_rate_list) / len(success_rate_list) if success_rate_list else -1
-                
+            widowx_task_success_rate[task_name] = (
+                sum(success_rate_list) / len(success_rate_list) if success_rate_list else -1
+            )
+
         # [todo] Generate LaTeX tables for Google Robot tasks
 
         # [todo] Generate LaTeX tables for WidowX tasks
@@ -85,12 +86,16 @@ class visualizer:
                 latex_code += f"        {task_safe} & {rate:.2f} \\\\ \\midrule\n"
             # remove the last '\\midrule'
             latex_code = latex_code[:-10]
-            latex_code += """
+            latex_code += (
+                """
         \\bottomrule
     \\end{tabular}
-    \\caption{""" + title + """}
+    \\caption{"""
+                + title
+                + """}
 \end{table}
 """
+            )
             return latex_code
 
         latex_tables = []
@@ -98,10 +103,10 @@ class visualizer:
         latex_tables.append(generate_latex_table("WidowX Task Success Rates", widowx_task_success_rate))
         latex_tables.append(generate_latex_table("Individual Google Robot Task Success Rates", google_result))
         latex_tables.append(generate_latex_table("Individual WidowX Task Success Rates", widowx_result))
-        
+
         with open(output_latex_file, "w") as f:
             f.write("\n".join(latex_tables))
-        
+
         return output_latex_file
 
     @staticmethod
@@ -320,6 +325,52 @@ class visualizer:
             raise NotImplementedError()
 
 
+class key_points_op:
+    @staticmethod
+    def set_keypoints(key_points, pcd_points):
+        # ################# find nearest object #################
+        nearest_point = min(
+            pcd_points, key=lambda point: coordination_transform.dist_2d(key_points.first_a0.p2d, point.p2d)
+        )
+        key_points.first.p3d.set_p(nearest_point.p3d.p)
+
+        nearest_point = min(
+            pcd_points, key=lambda point: coordination_transform.dist_2d(key_points.post_a0.p2d, point.p2d)
+        )
+        key_points.post.p3d.set_p(nearest_point.p3d.p)
+
+        # ################# key point #################
+        key_points.pre.p3d = coordination_transform.compute_pre_pose(key_points.first.p3d.p, key_points.pre.p3d.q)
+        key_points.pre.p3d_to_matrix()
+        key_points.first.p3d_to_matrix()
+        key_points.post.p3d_to_matrix()
+
+        return key_points
+
+    @staticmethod
+    def get_point_and_grasp(current_stage, key_points):
+        if current_stage == "pre":
+            object_point = key_points.pre
+            grasp_state = SimpleNamespace(start=0, end=0)
+        elif current_stage == "first":
+            object_point = key_points.first
+            grasp_state = SimpleNamespace(start=0, end=1)
+        elif current_stage == "post":
+            object_point = key_points.post
+            grasp_state = SimpleNamespace(start=1, end=1)
+        return object_point, grasp_state
+
+    @staticmethod
+    def offset_action(action, current_stage):
+        offset = np.array([0, 0, 0, 0, 0, 0, 0], dtype=np.float16)
+        coeffi = np.array([-1, -1, 1, -1, -1, -1, 1], dtype=np.float16)
+        p_magnitude = 1
+        q_magnitude = 0.3 if current_stage == "pre" else 0
+        coeffi[0:3] = coeffi[0:3] * p_magnitude
+        coeffi[3:6] = coeffi[3:6] * q_magnitude
+        action = (action - offset) * coeffi
+        return action
+
 class sim_util:
     """
     action space limit: env.unwrapped.action_space
@@ -407,6 +458,23 @@ class sim_util:
                         object_list.add(actor.name)
 
         return list(object_list)
+
+    @staticmethod
+    def get_pcd_from_camera(env, obs):
+        camera = env.unwrapped._scene.get_cameras()[1]
+        camera_intrinsic = obs["camera_param"][get_camera_name(env)]["intrinsic_cv"]
+        camera_extrinsic = obs["camera_param"][get_camera_name(env)]["extrinsic_cv"]
+
+        points_position_world = sim_util.get_pcd_positions(camera)
+        pcd_points = []
+        for point in points_position_world:
+            pixel = coordination_transform.project_to_image(
+                coordination_transform.position_to_camera(point, camera_extrinsic), camera_intrinsic
+            )
+            pd = KeyPoint(p2d=pixel[::1], p3d=sapien.Pose())
+            pd.p3d.set_p(point)
+            pcd_points.append(pd)  # W, H
+        return pcd_points
 
 
 def timer(func):
@@ -751,6 +819,36 @@ def rdt_api(
     else:
         print(f"Error {response.status_code}: {response.text}")
         return None
+
+
+def rdt(image, depth, prev_info, instruction):
+    if prev_info.prev_image is None:
+        prev_info.prev_image = image
+    if prev_info.prev_depth is None:
+        prev_info.prev_depth = depth
+    paths = save_images_temp(image_list=[image, prev_info.prev_image, depth, prev_info.prev_depth])
+
+    # Use prev_info.prev_image for your action model if needed
+    rdt_result = rdt_api(
+        instruction=instruction,
+        image_path=paths[0],
+        image_previous_path=paths[1],
+        depth_path=paths[2],
+        depth_previous_path=paths[3],
+        port=5003,
+    )
+
+    try:
+        points = rdt_result["points"]
+    except Exception as e:
+        print("Error in RDT API:", e)
+        raise e
+
+    for pathh in paths:
+        if pathh is not None:
+            os.remove(pathh)
+
+    return points
 
 
 def load_json_data(data_file: str):

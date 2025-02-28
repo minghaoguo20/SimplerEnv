@@ -30,10 +30,12 @@ from demo.rdt_util import (
     obs2pcd,
     ram_api,
     rdt_api,
+    rdt,
     save_images_temp,
     print_progress,
     get_camera_name,
     timer,
+    key_points_op,
     visualizer,
     coordination_transform,
     sim_util,
@@ -80,15 +82,10 @@ def _main(args):
         actors = SimpleNamespace(obj=env.unwrapped.obj, tcp=env.unwrapped.tcp)
     except:
         actors = SimpleNamespace(tcp=env.unwrapped.tcp)
-    # robot = env.unwrapped.agent.robot  # 获取机器人
-    # robot_link_gripper_tcp_at_world = sim_util.get_link(robot.get_links(), "link_gripper_tcp")
-    # scene: sapien.Scene = env.unwrapped._scene
 
     save_video = SimpleNamespace(w_annotation=[], origianl=[])
     frames_save_dir = os.path.join(args.output_dir, f"{task_info}_{task_name}")
     os.makedirs(frames_save_dir, exist_ok=True)
-    # print(f">>> Saving frames to: {frames_save_dir}")
-    # print(f">>> TimeStamp: {date_now.strftime('%H%M%S')}")
 
     done, truncated = False, False
 
@@ -100,6 +97,12 @@ def _main(args):
 
     obs_notebook = {}
 
+    quaternion = hyperparams.get_hyper(task_name, "quaternion", args.simpler_data_file)
+    if quaternion is not None:
+        quaternion = np.array(quaternion)
+    else:
+        quaternion = actors.tcp.pose.q  # w, x, y, z
+
     key_points = SimpleNamespace(
         first_a0=KeyPoint(),
         post_a0=KeyPoint(),
@@ -108,11 +111,6 @@ def _main(args):
         post=KeyPoint(p3d=sapien.Pose()),
     )
 
-    quaternion = hyperparams.get_hyper(task_name, "quaternion", args.simpler_data_file)
-    if quaternion is not None:
-        quaternion = np.array(quaternion)
-    else:
-        quaternion = actors.tcp.pose.q  # w, x, y, z
     key_points.pre.p3d.set_q(quaternion)
     key_points.first.p3d.set_q(quaternion)
     key_points.post.p3d.set_q(quaternion)
@@ -124,101 +122,24 @@ def _main(args):
     camera_extrinsic = obs["camera_param"][get_camera_name(env)]["extrinsic_cv"]
     # camera_extrinsic = obs["camera_param"][get_camera_name(env)]["cam2world_gl"]
 
-    # ############################## point cloud pose ##############################
-    points_position_world = sim_util.get_pcd_positions(camera)
-    pcd_points = []
-    for point in points_position_world:
-        pixel = coordination_transform.project_to_image(
-            coordination_transform.position_to_camera(point, camera_extrinsic), camera_intrinsic
-        )
-        pd = KeyPoint(p2d=pixel[::1], p3d=sapien.Pose())
-        pd.p3d.set_p(point)
-        pcd_points.append(pd)  # W, H
-    # ##############################################################################
+    # point cloud pose ##############################
+    pcd_points = sim_util.get_pcd_from_camera(env, obs)
 
-    # ############################## image preprocess ##############################
+    # image preprocess ##############################
     image = get_image_from_maniskill2_obs_dict(env, obs)
     image_original = image.copy()
-    # depth = None
-    depth = sim_util.get_depth(env.unwrapped._scene, camera)  # use depth from scene
-    # depth = depth_api(image=image, api_url_file=args.api_url_file) # use api
-    # ##############################################################################
+    depth = sim_util.get_depth(env.unwrapped._scene, camera)
 
-    # ##################################### RDT ####################################
-    if prev_info.prev_image is None:
-        prev_info.prev_image = image
-    if prev_info.prev_depth is None:
-        prev_info.prev_depth = depth
-    paths = save_images_temp(image_list=[image, prev_info.prev_image, depth, prev_info.prev_depth])
-
-    # Use prev_info.prev_image for your action model if needed
-    rdt_result = rdt_api(
-        instruction=instruction,
-        image_path=paths[0],
-        image_previous_path=paths[1],
-        depth_path=paths[2],
-        depth_previous_path=paths[3],
-        port=args.rdt_port,
-    )
-
-    try:
-        points = rdt_result["points"]
-    except Exception as e:
-        print("Error in RDT API:", e)
-        raise e
-
-    for pathh in paths:
-        if pathh is not None:
-            os.remove(pathh)
-
+    # RDT ###########################################
+    points = rdt(image, depth, prev_info, instruction)
     key_points.first_a0.p2d = np.array(points[0])[::-1]
     key_points.post_a0.p2d = np.array(points[-1])[::-1]
-    # ###############################################################################
+    key_points = key_points_op.set_keypoints(key_points, pcd_points)
 
-    # ############################# find nearest object #############################
-    nearest_point = min(
-        pcd_points, key=lambda point: coordination_transform.dist_2d(key_points.first_a0.p2d, point.p2d)
-    )
-    key_points.first.p3d.set_p(nearest_point.p3d.p)
-
-    _post_from_file = hyperparams.get_hyper(task_name, "post_position", args.simpler_data_file)
-    if _post_from_file is not None:
-        nearest_point.p3d.set_p(_post_from_file)
-    else:
-        nearest_point = min(
-            pcd_points, key=lambda point: coordination_transform.dist_2d(key_points.post_a0.p2d, point.p2d)
-        )
-        key_points.post.p3d.set_p(nearest_point.p3d.p)
-    # ###############################################################################
-
-    # ################################## key point ##################################
-    key_points.pre.p3d = coordination_transform.compute_pre_pose(key_points.first.p3d.p, key_points.pre.p3d.q)
-    # _position = hyperparams.get_hyper(task_name, "position", args.simpler_data_file)
-    # if _position is not None:
-    #     key_points.post.p3d.set_p(_position)
-    key_points.pre.p3d_to_matrix()
-    key_points.first.p3d_to_matrix()
-    key_points.post.p3d_to_matrix()
-    # ###############################################################################
-
-    # ################################## def stages ##################################
+    # def stages #####################################
     stage = deque(["pre", "first", "post"])
-
-    def get_point_and_grasp(current_stage, key_points=key_points):
-        if current_stage == "pre":
-            object_point = key_points.pre
-            grasp_state = SimpleNamespace(start=0, end=0)
-        elif current_stage == "first":
-            object_point = key_points.first
-            grasp_state = SimpleNamespace(start=0, end=1)
-        elif current_stage == "post":
-            object_point = key_points.post
-            grasp_state = SimpleNamespace(start=1, end=1)
-        return object_point, grasp_state
-
     current_stage = stage[0]
-    object_point, grasp_state = get_point_and_grasp(current_stage, key_points)
-    # ###############################################################################
+    object_point, grasp_state = key_points_op.get_point_and_grasp(current_stage, key_points)
 
     while not (done or truncated) and len(stage) > 0:
         image_info = ""
@@ -233,13 +154,15 @@ def _main(args):
         )
         action[6] = grasp_state.start
 
-        offset = np.array([0, 0, 0, 0, 0, 0, 0], dtype=np.float16)
-        coeffi = np.array([-1, -1, 1, -1, -1, -1, 1], dtype=np.float16)
-        p_magnitude = 1
-        q_magnitude = 0.3 if current_stage == "pre" else 0
-        coeffi[0:3] = coeffi[0:3] * p_magnitude
-        coeffi[3:6] = coeffi[3:6] * q_magnitude
-        action = (action - offset) * coeffi
+        # offset = np.array([0, 0, 0, 0, 0, 0, 0], dtype=np.float16)
+        # coeffi = np.array([-1, -1, 1, -1, -1, -1, 1], dtype=np.float16)
+        # p_magnitude = 0.2
+        # q_magnitude = 0.3 if current_stage == "pre" else 0
+        # coeffi[0:3] = coeffi[0:3] * p_magnitude
+        # coeffi[3:6] = coeffi[3:6] * q_magnitude
+        # action = (action - offset) * coeffi
+
+        action = key_points_op.offset_action(action, current_stage)
 
         dist_points = coordination_transform.cal_distance(
             object_transformation_matrix_world,
@@ -255,9 +178,10 @@ def _main(args):
             stage.popleft()
             if len(stage) > 0:
                 current_stage = stage[0]
-                object_point, grasp_state = get_point_and_grasp(current_stage, key_points)
+                object_point, grasp_state = key_points_op.get_point_and_grasp(current_stage, key_points)
             else:
                 done = True
+        # action = key_points_op.cal_action(actors, object_point, grasp_state, current_stage, stage, key_points)
         # #####################################################################
 
         # ############################## Track & Info ##############################
@@ -364,7 +288,7 @@ def _main(args):
         draw.text((10, 2 * FONT_SIZE), action_text, fill="white", font=font)
         draw.text((10, 3 * FONT_SIZE), f"Distance: {dist_points:.2f}", fill="white", font=font)
         draw.text((10, 4 * FONT_SIZE), f"Angle: {angle_degrees:.2f} degrees", fill="white", font=font)
-        image = np.array(image_pil)
+        # image = np.array(image_pil)
         # ############################################################################
 
         # ############################## visulize image ##############################
@@ -375,8 +299,8 @@ def _main(args):
         if True:  # frames_are_different:
             image_save_path = os.path.join(frames_save_dir, f"frame_{env._elapsed_steps:04d}.png")
             # Write image info on the image
-            image_pil = Image.fromarray(image)
-            draw = ImageDraw.Draw(image_pil)
+            # image_pil = Image.fromarray(image)
+            # draw = ImageDraw.Draw(image_pil)
             draw.text((10, 5 * FONT_SIZE), image_info, fill="white", font=font)
 
             # Draw an arrow from key_points.first_a0.p2d to key_points.post_a0.p2d
