@@ -9,12 +9,7 @@
         "post_position": null
     },
     "demo2": {
-        "quaternion": [
-            1,
-            0,
-            0,
-            0
-        ],
+        "quaternion": null,
         "post_position": [
             0,
             0.2,
@@ -23,20 +18,15 @@
     },
     "google_robot_pick_coke_can": {
         "quaternion": [
-            1,
-            0,
-            0,
-            0
+            0.707,
+            0.000,
+            0.000,
+            0.707
         ],
         "post_position": null
     },
     "google_robot_pick_object": {
-        "quaternion": [
-            1,
-            0,
-            0,
-            0
-        ],
+        "quaternion": null,
         "post_position": null
     }
 }

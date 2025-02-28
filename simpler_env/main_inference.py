@@ -2,6 +2,9 @@ import os
 
 import numpy as np
 import tensorflow as tf
+import keras
+
+tf.keras = keras
 
 from simpler_env.evaluation.argparse import get_args
 from simpler_env.evaluation.maniskill2_evaluator import maniskill2_evaluator
@@ -14,8 +17,11 @@ except ImportError as e:
     print("Octo is not correctly imported.")
     print(e)
 
+from debug_util import setup_debugger
+
 
 if __name__ == "__main__":
+    setup_debugger(ip_addr="127.0.0.1", port=9501, debug=False)
     args = get_args()
 
     os.environ["DISPLAY"] = ""
@@ -53,6 +59,8 @@ if __name__ == "__main__":
                 init_rng=args.octo_init_rng,
                 action_scale=args.action_scale,
             )
+    elif "a0" in args.policy_model:
+        model = "a0"
     else:
         raise NotImplementedError()
 

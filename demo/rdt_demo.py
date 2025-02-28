@@ -1,9 +1,10 @@
 # CUDA_VISIBLE_DEVICES=3 python demo/rdt_demo.py --task_names google_robot_pick_coke_can --repeat_n 1
-# CUDA_VISIBLE_DEVICES=3 python demo/rdt_demo.py --task_names google_robot_pick_coke_can google_robot_move_near --repeat_n 2
+# CUDA_VISIBLE_DEVICES=3 python demo/rdt_demo.py --task_names google_robot_pick_coke_can --repeat_n 2
 # CUDA_VISIBLE_DEVICES=3 python demo/rdt_demo.py --repeat_n 10 | tee output.txt
 # CUDA_VISIBLE_DEVICES=3 python demo/rdt_demo.py --task_names google_robot_pick_object google_robot_move_near_v0 google_robot_move_near_v1 google_robot_move_near --repeat_n 2 debug
 
 import os
+import copy
 import json
 import site
 import argparse
@@ -23,7 +24,7 @@ import simpler_env
 from simpler_env.utils.env.observation_utils import get_image_from_maniskill2_obs_dict
 import sapien.core as sapien
 
-from rdt_util import (
+from demo.rdt_util import (
     create_point_cloud,
     depth_api,
     obs2pcd,
@@ -97,8 +98,7 @@ def _main(args):
         tcp_last_pose=np.array([-1, -1, -1]),
     )
 
-    current_step = 0
-    pose_action_pose = {}
+    obs_notebook = {}
 
     key_points = SimpleNamespace(
         first_a0=KeyPoint(),
@@ -108,9 +108,11 @@ def _main(args):
         post=KeyPoint(p3d=sapien.Pose()),
     )
 
-    # [todo] modeify here
-    # quaternion = np.array(hyperparams.get_hyper(task_name, "quaternion", args.simpler_data_file))
-    quaternion = actors.tcp.pose.q  # w, x, y, z
+    quaternion = hyperparams.get_hyper(task_name, "quaternion", args.simpler_data_file)
+    if quaternion is not None:
+        quaternion = np.array(quaternion)
+    else:
+        quaternion = actors.tcp.pose.q  # w, x, y, z
     key_points.pre.p3d.set_q(quaternion)
     key_points.first.p3d.set_q(quaternion)
     key_points.post.p3d.set_q(quaternion)
@@ -174,27 +176,6 @@ def _main(args):
     # ###############################################################################
 
     # ############################# find nearest object #############################
-    """
-    # dist_array = []
-    # # all_actors = set()
-    # # for atcl in env.get_articulations():
-    # #     for joint in atcl.get_joints():
-    # #         all_actors.add(joint)  # set 自动去重
-    # all_actors = env.unwrapped._scene.get_all_actors()
-    # for idx, ac in enumerate(all_actors):
-    #     # print(coordination_transform.pose_to_transformation_matrix(ac.pose))
-    #     p_2d = coordination_transform.project_to_image(
-    #         ac.pose.p,
-    #         obs["camera_param"][get_camera_name(env)]["intrinsic_cv"],
-    #     )
-    #     dist = coordination_transform.dist_2d(key_points.first_a0.p2d, p_2d) if (p_2d is not None) else np.inf
-
-    #     dist_array.append(dist)
-    # min_index = np.argmin(dist_array)
-    # print(f"All actors: {[ac.name for ac in all_actors]}")
-    # print(f"Nearest object: {all_actors[min_index].name}")
-    # key_points.first.p3d.set_p(all_actors[min_index].pose.p)
-    """
     nearest_point = min(
         pcd_points, key=lambda point: coordination_transform.dist_2d(key_points.first_a0.p2d, point.p2d)
     )
@@ -211,7 +192,7 @@ def _main(args):
     # ###############################################################################
 
     # ################################## key point ##################################
-    key_points.pre.p3d = coordination_transform.compute_pre_pose(key_points.first.p3d.p, actors.tcp.pose.q)
+    key_points.pre.p3d = coordination_transform.compute_pre_pose(key_points.first.p3d.p, key_points.pre.p3d.q)
     # _position = hyperparams.get_hyper(task_name, "position", args.simpler_data_file)
     # if _position is not None:
     #     key_points.post.p3d.set_p(_position)
@@ -219,26 +200,6 @@ def _main(args):
     key_points.first.p3d_to_matrix()
     key_points.post.p3d_to_matrix()
     # ###############################################################################
-
-    """
-    # ########################### coordination convertion ###########################
-    # # camera_at_world = obs["camera_param"][get_camera_name(env)]["cam2world_gl"]
-    # camera_at_world = obs["camera_param"][get_camera_name(env)]["extrinsic_cv"]
-    # robot_base_at_world = coordination_transform.pose_to_transformation_matrix(
-    #     np.concatenate((robot.pose.p, robot.pose.q), axis=0)
-    # )
-
-    # # object_pose_camera = ram_result["position"]  # t_obj at camera frame [x, y, z]
-    # object_pose_camera = None
-    # object_pose_world = camera_at_world[:3, :3] @ object_pose_camera + camera_at_world[:3, 3]  # t_obj at world frame
-    # # object_pose_world = actors.obj.get_pose().p  # from GT
-    # object_rotation_world = actors.obj.get_pose().to_transformation_matrix()[:3, :3]  # from GT
-    # # object_rotation_world = hyperparams.get_rotation(task_name=task_name, data_file=args.simpler_data_file)
-    # object_transformation_matrix_world = np.eye(4)
-    # object_transformation_matrix_world[:3, 3] = object_pose_world
-    # object_transformation_matrix_world[:3, :3] = object_rotation_world
-    # ################################################################################
-    """
 
     # ################################## def stages ##################################
     stage = deque(["pre", "first", "post"])
@@ -260,55 +221,6 @@ def _main(args):
     # ###############################################################################
 
     while not (done or truncated) and len(stage) > 0:
-        """
-        # action[:3]: delta xyz;
-        # action[3:6]: delta rotation in axis-angle representation;
-        # action[6:7]: gripper (the meaning of open / close depends on robot URDF)
-
-        # ##################################### RAM #####################################
-        # pcd = obs2pcd(obs, depth_scale=DEPTH_SCALE, camera=get_camera_name(env))  # depth_scale = 2
-        # ram_result = ram_api(
-        #     rgb=obs["image"][get_camera_name(env)]["rgb"],
-        #     pcd=pcd,
-        #     contact_point=key_points.first_a0.p2d,
-        #     post_contact_dir=key_points.post_a0.p2d,
-        #     api_url_file=args.api_url_file,
-        # )  # [x, y, z]  # it was supposed to be: [score, width, height, depth, rotation_matrix(9), translation(3), object_id]
-
-        #           depth_scale=0.5     | xyz=[0, 0, 0]
-        #           depth_scale=1       | xyz=[0, 0, 0]
-        #           depth_scale=5       | xyz=[1, 0, 2]
-        #           depth_scale=10      | xyz=[2, 0, 4]
-        #           depth_scale=20      | xyz=[4, 1, 9]
-
-        # ###############################################################################
-
-        # ################################ depth to pose ################################
-        # # gt_2d = coordination_transform.project_to_image(coordination_transform.world_to_camera(actors.obj.get_pose().to_transformation_matrix(), obs["camera_param"][get_camera_name(env)]["extrinsic_cv"]), obs["camera_param"][get_camera_name(env)]["intrinsic_cv"])
-
-        # u, v = key_points.first_a0.p2d  # 像素坐标 (x, y)
-        # # u, v = gt_2d.astype(np.uint16)
-        # Z_c = depth[v, u]  # 深度值
-        # K = obs["camera_param"][get_camera_name(env)]["intrinsic_cv"]
-        # fx, fy = K[0, 0], K[1, 1]
-        # cx, cy = K[0, 2], K[1, 2]
-        # # 计算相机坐标系中的3D点
-        # X_c = (u - cx) * Z_c / fx
-        # Y_c = (v - cy) * Z_c / fy
-
-        # P_c = np.array([X_c, Y_c, Z_c, 1])  # 齐次坐标
-
-        # # 获取相机到世界的变换矩阵
-        # T_cam2world = obs["camera_param"][get_camera_name(env)]["cam2world_gl"]
-        # # T_cam2world = obs["camera_param"][get_camera_name(env)]['extrinsic_cv']
-
-        # # 计算世界坐标
-        # P_w = T_cam2world @ P_c  # 矩阵乘法
-        # X_w, Y_w, Z_w = P_w[:3]  # 取前三个元素（世界坐标）
-        # object_pose_camera = P_w[:3]
-        # ###############################################################################
-        """
-
         image_info = ""
 
         # ########################### move to point ###########################
@@ -461,7 +373,7 @@ def _main(args):
         frames_are_different = not np.all(actors.tcp.pose.p == prev_info.tcp_last_pose)
         # if not frames_are_different: break
         if True:  # frames_are_different:
-            image_save_path = os.path.join(frames_save_dir, f"frame_{current_step:04d}.png")
+            image_save_path = os.path.join(frames_save_dir, f"frame_{env._elapsed_steps:04d}.png")
             # Write image info on the image
             image_pil = Image.fromarray(image)
             draw = ImageDraw.Draw(image_pil)
@@ -480,10 +392,14 @@ def _main(args):
             # image_pil.save(image_save_path)
             image_info = ""
 
-        pose_action_pose[f"{current_step:03d}"] = {
-            "frames_are_different": frames_are_different,
-            "info": f"{visualizer.nparray_to_string(prev_info.tcp_last_pose, DIGITS)} \t-> {visualizer.nparray_to_string(action, DIGITS)} \t-> {visualizer.nparray_to_string(actors.tcp.pose.p, DIGITS)}",
-        }
+        obs_notebook[f"{env._elapsed_steps:03d}"] = dict(
+            stage=current_stage,
+            step=env._elapsed_steps,
+            frames_are_different=frames_are_different,
+            info=f"tcp: {visualizer.nparray_to_string(prev_info.tcp_last_pose, DIGITS)} \t-> {visualizer.nparray_to_string(action, DIGITS)} \t-> {visualizer.nparray_to_string(actors.tcp.pose.p, DIGITS)}",
+            action=action.tolist(),
+            tcp_pose=dict(p=actors.tcp.pose.p.tolist(), qwxyz=actors.tcp.pose.q.tolist()),
+        )
 
         image = np.array(image_pil)
         save_video.w_annotation.append(image)
@@ -502,35 +418,64 @@ def _main(args):
         # ##############################################################################
 
         # print_progress(
-        #     f"\r[{current_stage}] {current_step} [{not np.all(actors.tcp.pose.p == prev_info.tcp_last_pose)}] \t| action: {visualizer.nparray_to_string(action, DIGITS)} \t| {visualizer.nparray_to_string(actors.tcp.pose.p, DIGITS)}\t"
+        #     f"\r[{current_stage}] {env._elapsed_steps} [{not np.all(actors.tcp.pose.p == prev_info.tcp_last_pose)}] \t| action: {visualizer.nparray_to_string(action, DIGITS)} \t| {visualizer.nparray_to_string(actors.tcp.pose.p, DIGITS)}\t"
         # )
-        current_step += 1
 
     episode_stats = info.get("episode_stats", {})
     print("Episode stats", episode_stats)
+
     # Save the video instead of showing it
     str_done = "success" if done else "failure"
-    video_save_path = os.path.join(frames_save_dir, f"{task_name}_{run_date}_{str_done}.mp4")
-    video_original_save_path = os.path.join(frames_save_dir, f"{task_name}_{run_date}_{str_done}_original.mp4")
+    video_save_path = os.path.join(frames_save_dir, f"{str_done}.mp4")
+    video_original_save_path = os.path.join(frames_save_dir, f"{str_done}_original.mp4")
     mediapy.write_video(video_save_path, save_video.w_annotation, fps=10)
     mediapy.write_video(video_original_save_path, save_video.origianl, fps=10)
     print(f"Video saved to {frames_save_dir}")
+
+    # Save obs_notebook to a text file
+    pose_action_save_path = os.path.join(frames_save_dir, f"obs_notebook.txt")
+    with open(pose_action_save_path, "w") as f:
+        for step in obs_notebook:
+            item = obs_notebook[step]
+            # changed = "[Changed]" if item["frames_are_different"] else "[No Move]"
+            # f.write(f'{step} \t{changed} \t{item["info"]} \n')
+            f.write(f'{step} \t{item["info"]} \n')
+        f.write("\n" + "*" * 50 + "\n\n")
+    print(f"Pose action data saved to {pose_action_save_path}")
+    # Save obs_notebook to a JSON file
+    obs_notebook_save_path = os.path.join(frames_save_dir, f"obs_notebook.json")
+    with open(obs_notebook_save_path, "w") as f:
+        json.dump(obs_notebook, f, indent=4)
+    print(f"Obs notebook data saved to {obs_notebook_save_path}")
+
+    # Save key_points to a JSON file
+    _key_points = copy.deepcopy(key_points)
+    key_points_dict = dict(
+        first_a0=_key_points.first_a0.__dict__,
+        post_a0=_key_points.post_a0.__dict__,
+        pre=_key_points.pre.__dict__,
+        first=_key_points.first.__dict__,
+        post=_key_points.post.__dict__,
+    )
+    for point, point_value in key_points_dict.items():
+        for key, item in point_value.items():
+            if isinstance(item, np.ndarray):
+                point_value[key] = item.tolist()
+            elif isinstance(item, dict):
+                for k, v in item.items():
+                    if isinstance(v, np.ndarray):
+                        item[k] = v.tolist()
+            elif isinstance(item, sapien.Pose):
+                point_value[key] = dict(p=item.p.tolist(), qwxyz=item.q.tolist())
+
+    # Save key_points to a JSON file
+    key_points_save_path = os.path.join(frames_save_dir, f"key_points.json")
+    with open(key_points_save_path, "w") as f:
+        json.dump(key_points_dict, f, indent=4)
+    print(f"Key points data saved to {key_points_save_path}")
+
     env.close()
     return done, frames_save_dir, instruction
-    # # Save pose_action_pose to a text file
-    # pose_action_save_path = os.path.join(frames_save_dir, f"{task_name}_{run_date}_pose_action_pose.txt")
-    # with open(pose_action_save_path, "w") as f:
-    #     for step in pose_action_pose:
-    #         item = pose_action_pose[step]
-    #         if item["frames_are_different"]:
-    #             f.write(f'{step}\t{item["info"]}\n')
-    #     f.write("\n" + "*" * 50 + "\n\n")
-    #     for step in pose_action_pose:
-    #         item = pose_action_pose[step]
-    #         changed = "[Changed]" if item["frames_are_different"] else "[No Move]"
-    #         f.write(f'{step} \t{changed} \t{item["info"]} \n')
-    #     f.write("\n" + "*" * 50 + "\n\n")
-    # print(f"Pose action data saved to {pose_action_save_path}")
 
 
 @timer
@@ -563,7 +508,7 @@ def main(args):
                 "done": done,
                 "instruction": instruction,
                 "save_dir": save_dir,
-            } 
+            }
             # print(f"Task: {task_name} exp_x: {exp_n} done:{done}")
         result[task_name] = {
             "success_arr": success_arr,
@@ -585,6 +530,7 @@ def main(args):
     md_path = visualizer.result_json_to_markdown(result_path)
     final_info.append(f"Markdown: {md_path}")
     visualizer.print_note_section(note=final_info)
+    visualizer.result_json_to_latex(result_path)
 
 
 if __name__ == "__main__":
