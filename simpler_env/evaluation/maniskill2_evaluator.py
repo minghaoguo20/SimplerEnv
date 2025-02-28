@@ -107,6 +107,7 @@ def _run_maniskill2_eval_single_episode(
         ray_tracing_dict.update(additional_env_build_kwargs)
         # put raytracing dict keys before other keys for compatibility with existing result naming and metric calculation
         additional_env_build_kwargs = ray_tracing_dict
+    print(f"Builing env: {env_name}")
     env = build_maniskill2_env(
         env_name,
         **additional_env_build_kwargs,

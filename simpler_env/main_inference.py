@@ -18,6 +18,7 @@ except ImportError as e:
     print(e)
 
 from debug_util import setup_debugger
+import json
 
 
 if __name__ == "__main__":
@@ -68,3 +69,9 @@ if __name__ == "__main__":
     success_arr = maniskill2_evaluator(model, args)
     print(args)
     print(" " * 10, "Average success", np.mean(success_arr))
+
+    results = {"success_arr": success_arr.tolist(), "average_success": np.mean(success_arr)}
+    results_path = os.path.join(args.logging_dir, "evaluation_results.json")
+    with open(results_path, "w") as f:
+        json.dump(results, f, indent=4)
+    print(f"Results saved to {results_path}")
