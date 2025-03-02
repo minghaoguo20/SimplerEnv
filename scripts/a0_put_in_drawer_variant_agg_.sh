@@ -2,6 +2,9 @@
 
 
 
+xy_div=5
+debug=""
+output_dir=$1
 declare -a policy_models=(
 "a0-base"
 )
@@ -27,7 +30,7 @@ EvalSim() {
     --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 0.0 0.0 1 \
     --obj-init-x-range -0.08 -0.02 3 --obj-init-y-range -0.02 0.08 3 \
     ${EXTRA_ARGS} \
-    --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+    --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 }
 
 

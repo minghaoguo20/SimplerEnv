@@ -1,5 +1,8 @@
 
 gpu_id=0
+output_dir=$1
+xy_div=5
+debug=""
 
 declare -a arr=("a0-base")
 
@@ -19,7 +22,7 @@ do CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-
   --env-name ${env_name} --scene-name ${scene_name} \
   --robot-init-x 0.35 0.35 1 --robot-init-y 0.21 0.21 1 --obj-variation-mode episode --obj-episode-range 0 60 \
   --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 -0.09 -0.09 1 \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 
 done
 
@@ -36,7 +39,7 @@ do CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-
   --robot-init-x 0.35 0.35 1 --robot-init-y 0.21 0.21 1 --obj-variation-mode episode --obj-episode-range 0 60 \
   --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 -0.09 -0.09 1 \
   --additional-env-build-kwargs no_distractor=True \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 
 done
 
@@ -57,7 +60,7 @@ do CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-
   --env-name ${env_name} --scene-name ${scene_name} \
   --robot-init-x 0.35 0.35 1 --robot-init-y 0.21 0.21 1 --obj-variation-mode episode --obj-episode-range 0 60 \
   --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 -0.09 -0.09 1 \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 
 done
 
@@ -81,7 +84,7 @@ do CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-
   --robot-init-x 0.35 0.35 1 --robot-init-y 0.21 0.21 1 --obj-variation-mode episode --obj-episode-range 0 60 \
   --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 -0.09 -0.09 1 \
   --additional-env-build-kwargs slightly_darker_lighting=True \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 
 CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path None \
   --robot google_robot_static \
@@ -90,7 +93,7 @@ CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-mod
   --robot-init-x 0.35 0.35 1 --robot-init-y 0.21 0.21 1 --obj-variation-mode episode --obj-episode-range 0 60 \
   --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 -0.09 -0.09 1 \
   --additional-env-build-kwargs slightly_brighter_lighting=True \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 
 done
 
@@ -114,7 +117,7 @@ do CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-
   --env-name ${env_name} --scene-name ${scene_name} \
   --robot-init-x 0.35 0.35 1 --robot-init-y 0.21 0.21 1 --obj-variation-mode episode --obj-episode-range 0 60 \
   --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 -0.09 -0.09 1 \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 
 done
 
@@ -139,7 +142,7 @@ do CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-
   --env-name ${env_name} --scene-name ${scene_name} \
   --robot-init-x 0.35 0.35 1 --robot-init-y 0.21 0.21 1 --obj-variation-mode episode --obj-episode-range 0 60 \
   --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 -0.09 -0.09 1 \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 
 done
 

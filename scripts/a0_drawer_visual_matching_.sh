@@ -1,6 +1,8 @@
 # shader_dir=rt means that we turn on ray-tracing rendering; this is quite crucial for the open / close drawer task as policies often rely on shadows to infer depth
 
-
+output_dir=$1
+xy_div=5
+debug=""
 
 declare -a policy_models=(
 "a0-base"
@@ -34,7 +36,7 @@ python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path 
   --obj-init-x-range 0 0 1 --obj-init-y-range 0 0 1 \
   --rgb-overlay-path ./ManiSkill2_real2sim/data/real_inpainting/open_drawer_a0.png \
   ${EXTRA_ARGS} \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 
 # A1
 python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path None \
@@ -46,7 +48,7 @@ python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path 
   --obj-init-x-range 0 0 1 --obj-init-y-range 0 0 1 \
   --rgb-overlay-path ./ManiSkill2_real2sim/data/real_inpainting/open_drawer_a1.png \
   ${EXTRA_ARGS} \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 
 # A2
 python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path None \
@@ -58,7 +60,7 @@ python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path 
   --obj-init-x-range 0 0 1 --obj-init-y-range 0 0 1 \
   --rgb-overlay-path ./ManiSkill2_real2sim/data/real_inpainting/open_drawer_a2.png \
   ${EXTRA_ARGS} \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 
 # B0
 python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path None \
@@ -70,7 +72,7 @@ python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path 
   --obj-init-x-range 0 0 1 --obj-init-y-range 0 0 1 \
   --rgb-overlay-path ./ManiSkill2_real2sim/data/real_inpainting/open_drawer_b0.png \
   ${EXTRA_ARGS} \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 
 # B1
 python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path None \
@@ -82,7 +84,7 @@ python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path 
   --obj-init-x-range 0 0 1 --obj-init-y-range 0 0 1 \
   --rgb-overlay-path ./ManiSkill2_real2sim/data/real_inpainting/open_drawer_b1.png \
   ${EXTRA_ARGS} \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 
 # B2
 python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path None \
@@ -94,7 +96,7 @@ python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path 
   --obj-init-x-range 0 0 1 --obj-init-y-range 0 0 1 \
   --rgb-overlay-path ./ManiSkill2_real2sim/data/real_inpainting/open_drawer_b2.png \
   ${EXTRA_ARGS} \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 
 # C0
 python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path None \
@@ -106,7 +108,7 @@ python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path 
   --obj-init-x-range 0 0 1 --obj-init-y-range 0 0 1 \
   --rgb-overlay-path ./ManiSkill2_real2sim/data/real_inpainting/open_drawer_c0.png \
   ${EXTRA_ARGS} \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 
 # C1
 python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path None \
@@ -118,7 +120,7 @@ python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path 
   --obj-init-x-range 0 0 1 --obj-init-y-range 0 0 1 \
   --rgb-overlay-path ./ManiSkill2_real2sim/data/real_inpainting/open_drawer_c1.png \
   ${EXTRA_ARGS} \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 
 # C2
 python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path None \
@@ -130,7 +132,7 @@ python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path 
   --obj-init-x-range 0 0 1 --obj-init-y-range 0 0 1 \
   --rgb-overlay-path ./ManiSkill2_real2sim/data/real_inpainting/open_drawer_c2.png \
   ${EXTRA_ARGS} \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 }
 
 

@@ -1,6 +1,8 @@
 # shader_dir=rt means that we turn on ray-tracing rendering; this is quite crucial for the open / close drawer task as policies often rely on shadows to infer depth
 
-
+output_dir=$1
+xy_div=5
+debug=""
 
 declare -a policy_models=(
 "a0-base"
@@ -32,7 +34,7 @@ EvalSim() {
     --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 0.0 0.0 1 \
     --obj-init-x-range 0 0 1 --obj-init-y-range 0 0 1 \
     ${EXTRA_ARGS} \
-    --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+    --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")"  $( [[ -n "$debug" ]] && echo "$debug" );
 }
 
 

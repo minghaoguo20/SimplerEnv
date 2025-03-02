@@ -135,7 +135,7 @@ def _run_maniskill2_eval_single_episode(
         }
     obs, _ = env.reset(options=env_reset_options)
     # for long-horizon environments, we check if the current subtask is the final subtask
-    is_final_subtask = env.is_final_subtask() 
+    is_final_subtask = env.is_final_subtask()
 
     # Obtain language instruction
     if instruction is not None:
@@ -166,18 +166,25 @@ def _run_maniskill2_eval_single_episode(
             actors = SimpleNamespace(obj=env.unwrapped.obj, tcp=env.unwrapped.tcp)
         except:
             actors = SimpleNamespace(tcp=env.unwrapped.tcp)
-        
+
         prev_info = SimpleNamespace(
             prev_image=None,  # Initialize previous image variable
             prev_depth=None,  # Initialize previous image variable
             tcp_last_pose=np.array([-1, -1, -1]),
         )
 
-        quaternion = hyperparams.get_hyper(env_name, "quaternion", simpler_data_file)
-        if quaternion is not None:
-            quaternion = np.array(quaternion)
+        # quaternion = hyperparams.get_hyper(env_name, "quaternion", simpler_data_file)
+        # if quaternion is not None:
+        #     quaternion = np.array(quaternion)
+        # else:
+        #     quaternion = actors.tcp.pose.q  # w, x, y, z
+
+        angle = hyperparams.get_hyper(env_name, "angle", simpler_data_file)
+        if angle is not None:
+            angle = np.array(angle)
         else:
-            quaternion = actors.tcp.pose.q  # w, x, y, z
+            angle = coordination_transform.quaternion_to_axis_angle(actors.tcp.pose.q)  # w, x, y, z
+        quaternion = coordination_transform.axis_angle_to_quaternion(angle)
 
         key_points = SimpleNamespace(
             first_a0=KeyPoint(),
@@ -248,16 +255,18 @@ def _run_maniskill2_eval_single_episode(
 
             _action = action.copy()
             action = dict(
-                terminate_episode = [1] if done else 0,
-                world_vector = _action[0:3],
-                rot_axangle = _action[3:6],
-                gripper = _action[6:7]
+                terminate_episode=[1] if done else 0,
+                world_vector=_action[0:3],
+                rot_axangle=_action[3:6],
+                gripper=_action[6:7],
             )
             # #####################################################################
 
             # ############################## Track & Info ##############################
             # Convert to camera coordinates
-            object_camera_pos = coordination_transform.world_to_camera(object_transformation_matrix_world, camera_extrinsic)
+            object_camera_pos = coordination_transform.world_to_camera(
+                object_transformation_matrix_world, camera_extrinsic
+            )
             gripper_camera_pos = coordination_transform.world_to_camera(
                 gripper_transformation_matrix_world, camera_extrinsic
             )
@@ -349,7 +358,10 @@ def _run_maniskill2_eval_single_episode(
                     font=font,
                 )
                 draw.text(
-                    (gripper_2d[0] + draw_w_offset.gripper[0], gripper_2d[1] + draw_w_offset.gripper[1] + 2 * FONT_SIZE),
+                    (
+                        gripper_2d[0] + draw_w_offset.gripper[0],
+                        gripper_2d[1] + draw_w_offset.gripper[1] + 2 * FONT_SIZE,
+                    ),
                     f"World: {_gripper_world_pos}",
                     fill="green",
                     font=font,
@@ -397,6 +409,7 @@ def _run_maniskill2_eval_single_episode(
             annotated_images.append(np.array(image_pil))
             # ##############################################################################
 
+            print_progress(f"\r[{current_stage} :: {env._elapsed_steps:02d}] action: {visualizer.nparray_to_string(_action, DIGITS)}        ")
 
             # ################################### action ###################################
             if not done:
@@ -406,7 +419,6 @@ def _run_maniskill2_eval_single_episode(
             image = get_image_from_maniskill2_obs_dict(env, obs)
             images.append(image)
             # ##############################################################################
-
 
         # step the model; "raw_action" is raw model action output; "action" is the processed action to be sent into maniskill env
         # raw_action, action = model.step(image, task_description)
@@ -423,9 +435,9 @@ def _run_maniskill2_eval_single_episode(
         obs, reward, done, truncated, info = env.step(
             np.concatenate([action["world_vector"], action["rot_axangle"], action["gripper"]]),
         )
-        
+
         success = "success" if done else "failure"
-        print("        " + ("\033[92m >>> success \033[0m" if done else "\033[91m >>> failure \033[0m"))
+        print("\n        " + ("\033[92m >>> success \033[0m" if done else "\033[91m >>> failure \033[0m"))
         new_task_description = env.get_language_instruction()
         if new_task_description != task_description:
             task_description = new_task_description
@@ -597,7 +609,7 @@ def run_maniskill2_eval_single_episode(
         }
     obs, _ = env.reset(options=env_reset_options)
     # for long-horizon environments, we check if the current subtask is the final subtask
-    is_final_subtask = env.is_final_subtask() 
+    is_final_subtask = env.is_final_subtask()
 
     # Obtain language instruction
     if instruction is not None:
@@ -635,7 +647,7 @@ def run_maniskill2_eval_single_episode(
         obs, reward, done, truncated, info = env.step(
             np.concatenate([action["world_vector"], action["rot_axangle"], action["gripper"]]),
         )
-        
+
         success = "success" if done else "failure"
         new_task_description = env.get_language_instruction()
         if new_task_description != task_description:

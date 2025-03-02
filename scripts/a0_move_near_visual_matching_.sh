@@ -1,6 +1,9 @@
 
 
 gpu_id=0
+output_dir=$1
+xy_div=5
+debug=""
 
 declare -a policy_models=(
   "a0-base"
@@ -32,7 +35,7 @@ do CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-
   --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 -0.09 -0.09 1 \
   --additional-env-build-kwargs urdf_version=${urdf_version} \
   --additional-env-save-tags baked_except_bpb_orange \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ; # google_move_near_real_eval_1.png
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ; # google_move_near_real_eval_1.png
 
 # do CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path None \
 #   --robot google_robot_static \

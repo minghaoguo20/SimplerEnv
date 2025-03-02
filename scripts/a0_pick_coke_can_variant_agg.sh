@@ -1,5 +1,8 @@
 
 gpu_id=0
+output_dir=$1
+xy_div=5
+debug=""
 
 declare -a arr=("a0-base")
 
@@ -22,10 +25,10 @@ do CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-
   --robot google_robot_static \
   --control-freq 3 --sim-freq 513 --max-episode-steps 80 \
   --env-name ${env_name} --scene-name ${scene_name} \
-  --robot-init-x 0.35 0.35 1 --robot-init-y 0.20 0.20 1 --obj-init-x -0.35 -0.12 5 --obj-init-y -0.02 0.42 5 \
+  --robot-init-x 0.35 0.35 1 --robot-init-y 0.20 0.20 1 --obj-init-x -0.35 -0.12 ${xy_div} --obj-init-y -0.02 0.42 ${xy_div} \
   --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 0 0 1 \
   --additional-env-build-kwargs ${coke_can_option} \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" $( [[ -n "$debug" ]] && echo "$debug" );
 
 done
 
@@ -51,10 +54,10 @@ do CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-
   --robot google_robot_static \
   --control-freq 3 --sim-freq 513 --max-episode-steps 80 \
   --env-name ${env_name} --scene-name ${scene_name} \
-  --robot-init-x 0.35 0.35 1 --robot-init-y 0.20 0.20 1 --obj-init-x -0.35 -0.12 5 --obj-init-y -0.02 0.42 5 \
+  --robot-init-x 0.35 0.35 1 --robot-init-y 0.20 0.20 1 --obj-init-x -0.35 -0.12 ${xy_div} --obj-init-y -0.02 0.42 ${xy_div} \
   --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 0 0 1 \
   --additional-env-build-kwargs ${coke_can_option} \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" $( [[ -n "$debug" ]] && echo "$debug" );
 
 done
 
@@ -78,18 +81,18 @@ do CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-
   --robot google_robot_static \
   --control-freq 3 --sim-freq 513 --max-episode-steps 80 \
   --env-name ${env_name} --scene-name ${scene_name} \
-  --robot-init-x 0.35 0.35 1 --robot-init-y 0.20 0.20 1 --obj-init-x -0.35 -0.12 5 --obj-init-y -0.02 0.42 5 \
+  --robot-init-x 0.35 0.35 1 --robot-init-y 0.20 0.20 1 --obj-init-x -0.35 -0.12 ${xy_div} --obj-init-y -0.02 0.42 ${xy_div} \
   --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 0 0 1 \
-  --additional-env-build-kwargs ${coke_can_option};
+  --additional-env-build-kwargs ${coke_can_option} $( [[ -n "$debug" ]] && echo "$debug" );
 
 CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path None \
   --robot google_robot_static \
   --control-freq 3 --sim-freq 513 --max-episode-steps 80 \
   --env-name ${env_name} --scene-name ${scene_name} \
-  --robot-init-x 0.35 0.35 1 --robot-init-y 0.20 0.20 1 --obj-init-x -0.35 -0.12 5 --obj-init-y -0.02 0.42 5 \
+  --robot-init-x 0.35 0.35 1 --robot-init-y 0.20 0.20 1 --obj-init-x -0.35 -0.12 ${xy_div} --obj-init-y -0.02 0.42 ${xy_div} \
   --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 0 0 1 \
   --additional-env-build-kwargs ${coke_can_option} distractor_config=more \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" $( [[ -n "$debug" ]] && echo "$debug" );
 
 done
 
@@ -114,10 +117,10 @@ do CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-
   --robot google_robot_static \
   --control-freq 3 --sim-freq 513 --max-episode-steps 80 \
   --env-name ${env_name} --scene-name ${scene_name} \
-  --robot-init-x 0.35 0.35 1 --robot-init-y 0.20 0.20 1 --obj-init-x -0.35 -0.12 5 --obj-init-y -0.02 0.42 5 \
+  --robot-init-x 0.35 0.35 1 --robot-init-y 0.20 0.20 1 --obj-init-x -0.35 -0.12 ${xy_div} --obj-init-y -0.02 0.42 ${xy_div} \
   --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 0 0 1 \
   --additional-env-build-kwargs ${coke_can_option} \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" $( [[ -n "$debug" ]] && echo "$debug" );
 
 done
 
@@ -140,18 +143,18 @@ do CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-
   --robot google_robot_static \
   --control-freq 3 --sim-freq 513 --max-episode-steps 80 \
   --env-name ${env_name} --scene-name ${scene_name} \
-  --robot-init-x 0.35 0.35 1 --robot-init-y 0.20 0.20 1 --obj-init-x -0.35 -0.12 5 --obj-init-y -0.02 0.42 5 \
+  --robot-init-x 0.35 0.35 1 --robot-init-y 0.20 0.20 1 --obj-init-x -0.35 -0.12 ${xy_div} --obj-init-y -0.02 0.42 ${xy_div} \
   --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 0 0 1 \
-  --additional-env-build-kwargs ${coke_can_option} slightly_darker_lighting=True;
+  --additional-env-build-kwargs ${coke_can_option} slightly_darker_lighting=True $( [[ -n "$debug" ]] && echo "$debug" );
 
 CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path None \
   --robot google_robot_static \
   --control-freq 3 --sim-freq 513 --max-episode-steps 80 \
   --env-name ${env_name} --scene-name ${scene_name} \
-  --robot-init-x 0.35 0.35 1 --robot-init-y 0.20 0.20 1 --obj-init-x -0.35 -0.12 5 --obj-init-y -0.02 0.42 5 \
+  --robot-init-x 0.35 0.35 1 --robot-init-y 0.20 0.20 1 --obj-init-x -0.35 -0.12 ${xy_div} --obj-init-y -0.02 0.42 ${xy_div} \
   --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 0 0 1 \
   --additional-env-build-kwargs ${coke_can_option} slightly_brighter_lighting=True \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" $( [[ -n "$debug" ]] && echo "$debug" );
 
 done
 
@@ -176,10 +179,10 @@ do CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-
   --robot google_robot_static \
   --control-freq 3 --sim-freq 513 --max-episode-steps 80 \
   --env-name ${env_name} --scene-name ${scene_name} \
-  --robot-init-x 0.35 0.35 1 --robot-init-y 0.20 0.20 1 --obj-init-x -0.35 -0.12 5 --obj-init-y -0.02 0.42 5 \
+  --robot-init-x 0.35 0.35 1 --robot-init-y 0.20 0.20 1 --obj-init-x -0.35 -0.12 ${xy_div} --obj-init-y -0.02 0.42 ${xy_div} \
   --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 0 0 1 \
   --additional-env-build-kwargs ${coke_can_option} \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" $( [[ -n "$debug" ]] && echo "$debug" );
 
 done
 

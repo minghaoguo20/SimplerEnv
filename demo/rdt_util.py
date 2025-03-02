@@ -223,7 +223,37 @@ class visualizer:
                 visualizer.print_dict_keys(value, indent + 4)  # 递归增加缩进层级
 
     @staticmethod
-    def print_note_section(note, length: int = 50):
+    def print_note_section(note, length: int = 50, symbol: str = "*"):
+        """
+        Prints a formatted note section with a border of a specified symbol.
+
+        :param note: A string or a list of strings to display in the middle.
+        :param length: The number of symbols in the top and bottom border.
+        :param symbol: The character used for the border (default is '*').
+        """
+        if isinstance(note, str):  # Convert single string to a list
+            note = [note]
+
+        max_note_length = max(len(line) for line in note)  # Find longest line in the note
+
+        # Ensure the box is wide enough
+        if length < max_note_length + 6:
+            length = max_note_length + 6
+
+        print()
+
+        border = symbol * length
+        print(border)
+
+        for line in note:
+            padding = (length - len(line) - 2) // 2
+            note_line = symbol + " " * padding + line + " " * (length - len(line) - padding - 2) + symbol
+            print(note_line)
+
+        print(border)
+
+    @staticmethod
+    def _print_note_section(note, length: int = 50):
         """
         Prints a formatted note section with a border of stars.
 
@@ -327,7 +357,7 @@ class visualizer:
 
 class key_points_op:
     @staticmethod
-    def set_keypoints(key_points, pcd_points):
+    def set_keypoints(key_points, pcd_points, d=0.1):
         # ################# find nearest object #################
         nearest_point = min(
             pcd_points, key=lambda point: coordination_transform.dist_2d(key_points.first_a0.p2d, point.p2d)
@@ -340,7 +370,7 @@ class key_points_op:
         key_points.post.p3d.set_p(nearest_point.p3d.p)
 
         # ################# key point #################
-        key_points.pre.p3d = coordination_transform.compute_pre_pose(key_points.first.p3d.p, key_points.pre.p3d.q)
+        key_points.pre.p3d = coordination_transform.compute_pre_pose(key_points.first.p3d.p, key_points.pre.p3d.q, d)
         key_points.pre.p3d_to_matrix()
         key_points.first.p3d_to_matrix()
         key_points.post.p3d_to_matrix()
@@ -349,9 +379,12 @@ class key_points_op:
 
     @staticmethod
     def get_point_and_grasp(current_stage, key_points):
-        if current_stage == "pre":
+        if current_stage == "prepre":
             object_point = key_points.pre
-            grasp_state = SimpleNamespace(start=0, end=0)
+            grasp_state = SimpleNamespace(start=0, end=1)
+        elif current_stage == "pre":
+            object_point = key_points.pre
+            grasp_state = SimpleNamespace(start=1, end=0)
         elif current_stage == "first":
             object_point = key_points.first
             grasp_state = SimpleNamespace(start=0, end=1)
@@ -370,6 +403,7 @@ class key_points_op:
         coeffi[3:6] = coeffi[3:6] * q_magnitude
         action = (action - offset) * coeffi
         return action
+
 
 class sim_util:
     """
@@ -975,6 +1009,22 @@ class coordination_transform:
         return axis * theta  # 轴角格式: 轴 * 角度
 
     @staticmethod
+    def axis_angle_to_quaternion(axis_angle):
+        """
+        Converts an axis-angle representation to a quaternion.
+
+        Args:
+            axis_angle: A numpy array of shape (3,) representing the rotation in axis-angle form.
+
+        Returns:
+            q: A list of four elements [w, x, y, z] representing a quaternion.
+        """
+        axis = axis_angle / np.linalg.norm(axis_angle)
+        theta = np.linalg.norm(axis_angle)
+        return np.array([np.cos(theta / 2), *np.sin(theta / 2) * axis])
+
+
+    @staticmethod
     def pose_to_transformation_matrix(input_pose):
         """
         Convert a TCP pose (position + quaternion) to a 4x4 transformation matrix in world frame.
@@ -1097,7 +1147,7 @@ class coordination_transform:
         return np.linalg.norm(point1 - point2)
 
     @staticmethod
-    def compute_pre_pose(object_position, tcp_quaternion, d=0.1):
+    def compute_pre_pose(object_position, tcp_quaternion, d=0.0):
         """
         计算抓取位姿（grasp_pose）
 
@@ -1119,7 +1169,7 @@ class coordination_transform:
         tcp_forward_vector = tcp_rotation[:, 2]  # Z 轴方向
 
         # 计算抓取位置（沿 TCP 方向前进 d）
-        grasp_position = object_position - d * tcp_forward_vector
+        grasp_position = object_position + d * tcp_forward_vector
 
         # 返回抓取位姿
         grasp_pose = sapien.Pose(grasp_position, tcp_quaternion)
@@ -1154,6 +1204,11 @@ if __name__ == "__main__":
     # print(get_rotation("demo", data_file))  # Output: [0.1, 0.2, 0.3]
     # print(load_json_data("demo/api_url.json").get("depth"))
 
-    test_func.result_json_to_latex()
+    # test_func.result_json_to_latex()
+    q = np.array([0.707, 0, 0, 0.707])
+    a = coordination_transform.quaternion_to_axis_angle(q)
+    print(a)
+    q2 = coordination_transform.axis_angle_to_quaternion(a)
+    print(q2)
 
     # visualizer.print_note_section(["Test Section", "hi", "hello"])

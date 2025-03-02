@@ -2,6 +2,9 @@
 
 
 
+xy_div=5
+debug=""
+output_dir=$1
 declare -a policy_models=(
 "a0-base"
 # "octo-server"
@@ -31,7 +34,7 @@ python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path 
   --obj-init-x-range -0.08 -0.02 3 --obj-init-y-range -0.02 0.08 3 \
   --rgb-overlay-path ./ManiSkill2_real2sim/data/real_inpainting/open_drawer_a0.png \
   ${EXTRA_ARGS} \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 
 # B0
 python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path None \
@@ -43,7 +46,7 @@ python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path 
   --obj-init-x-range -0.08 -0.02 3 --obj-init-y-range -0.02 0.08 3 \
   --rgb-overlay-path ./ManiSkill2_real2sim/data/real_inpainting/open_drawer_b0.png \
   ${EXTRA_ARGS} \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 
 # C0
 python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path None \
@@ -55,7 +58,7 @@ python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path 
   --obj-init-x-range -0.08 -0.02 3 --obj-init-y-range -0.02 0.08 3 \
   --rgb-overlay-path ./ManiSkill2_real2sim/data/real_inpainting/open_drawer_c0.png \
   ${EXTRA_ARGS} \
-  --logging-dir "./output/eval/$(date +"%Y-%m-%d_%H-%M-%S")" ;
+  --logging-dir "${output_dir}/$(date +"%Y-%m-%d_%H-%M-%S")" ;
 }
 
 

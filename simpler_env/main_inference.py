@@ -17,6 +17,7 @@ except ImportError as e:
     print("Octo is not correctly imported.")
     print(e)
 
+from demo.rdt_util import visualizer
 from debug_util import setup_debugger
 import json
 
@@ -70,8 +71,10 @@ if __name__ == "__main__":
     print(args)
     print(" " * 10, "Average success", np.mean(success_arr))
 
-    results = {"success_arr": success_arr.tolist(), "average_success": np.mean(success_arr)}
+    _success_arr = np.array(success_arr, dtype=int)
+    results = {"success_arr": _success_arr.tolist(), "average_success": np.mean(_success_arr)}
     results_path = os.path.join(args.logging_dir, "evaluation_results.json")
     with open(results_path, "w") as f:
         json.dump(results, f, indent=4)
-    print(f"Results saved to {results_path}")
+    # print(f">>> Results saved to {results_path}")
+    visualizer.print_note_section(f">>> Results saved to {results_path}", symbol="@")

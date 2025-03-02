@@ -34,13 +34,13 @@ conda activate ram
 CUDA_VISIBLE_DEVICES=3 python run_realworld/run_server_api.py --port=5002
 ```
 
-#### db
+<!-- ### db
 ```bash
 tmux new -s ram
 cd /remote-home/minghao/code/aff/RAM
 conda activate ram
 CUDA_VISIBLE_DEVICES=3 python run_realworld/run_server_api.py
-```
+``` -->
 
 ## 3. Use RDT
 
@@ -84,3 +84,41 @@ CUDA_VISIBLE_DEVICES=3 python demo/rdt_demo.py
 
 - [x] convert ram_result to action: `demo/rdt_demo.py` line 82
 - [ ] label rotation
+
+# Result
+
+- ⏳ a0_drawer_variant_agg_.txt
+- ⏳ a0_drawer_visual_matching_.txt
+- ❌ a0_move_near_variant_agg_.txt
+- ❌ a0_move_near_visual_matching_.txt
+- ❌ a0_pick_coke_can_variant_agg.txt
+- ❌ a0_pick_coke_can_visual_matching.txt
+- ❌ a0_put_in_drawer_variant_agg_.txt
+- ⏳ a0_put_in_drawer_visual_matching_.txt
+
+# Debug
+
+## evaluate new model
+
+```shell
+(simpler_new) xurongtao@computer4:~/minghao/SimplerEnv$ CUDA_VISIBLE_DEVICES=3 python demo/rdt_demo.py  --repeat_n=1
+```
+
+✅ new model results: `/home/xurongtao/minghao/SimplerEnv/output/rdt/20250302_211510`
+
+## evaluate with all shell scripts
+
+```shell
+(simpler_new) xurongtao@computer4:~/minghao/SimplerEnv$ CUDA_VISIBLE_DEVICES=3 source scripts/a0_all.sh
+```
+
+⭕️ not run yet
+
+## quaternion
+
+```shell
+(simpler_new) xurongtao@computer4:~/minghao/SimplerEnv$ CUDA_VISIBLE_DEVICES=3 python demo/rdt_demo_find_angle.py --task_names=google_robot_open_drawer --repeat_n=1
+```
+
+⏳ 找角度，遍历所有angle: `/home/xurongtao/minghao/SimplerEnv/output/rdt/20250302_223426`
+

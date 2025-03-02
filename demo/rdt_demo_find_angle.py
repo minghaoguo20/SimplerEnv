@@ -48,7 +48,7 @@ if __name__ == "__main__":
     setup_debugger(ip_addr="127.0.0.1", port=9501, debug=False)
 
 warnings.filterwarnings("ignore")
-
+_output_dir = None
 date_now = datetime.now()
 run_date = date_now.strftime("%Y%m%d_%H%M%S")
 # DEPTH_SCALE = 1
@@ -57,7 +57,7 @@ FONT_SIZE = 14
 font = ImageFont.truetype("DejaVuSans.ttf", FONT_SIZE)
 
 
-def _main(args):
+def _main(angle, args):
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_idx
     site.main()
 
@@ -112,11 +112,11 @@ def _main(args):
     # else:
     #     quaternion = actors.tcp.pose.q  # w, x, y, z
 
-    angle = hyperparams.get_hyper(task_name, "angle", args.simpler_data_file)
-    if angle is not None:
-        angle = np.array(angle)
-    else:
-        angle = coordination_transform.quaternion_to_axis_angle(actors.tcp.pose.q)  # w, x, y, z
+    # angle = hyperparams.get_hyper(task_name, "angle", args.simpler_data_file)
+    # if angle is not None:
+    #     angle = np.array(angle)
+    # else:
+    #     angle = coordination_transform.quaternion_to_axis_angle(actors.tcp.pose.q)  # w, x, y, z
 
     quaternion = coordination_transform.axis_angle_to_quaternion(angle)
     key_points.pre.p3d.set_q(quaternion)
@@ -140,11 +140,11 @@ def _main(args):
 
     # RDT ###########################################
     points = rdt(image, depth, prev_info, instruction)
-    # points = [[310,310], [250,310]]
-    # points = [[230,310], [150,310]]
+    points = [[310,310], [250,310]]
+    points = [[230,310], [150,310]]
     key_points.first_a0.p2d = np.array(points[0])[::-1]
     key_points.post_a0.p2d = np.array(points[-1])[::-1]
-    key_points = key_points_op.set_keypoints(key_points, pcd_points, d=0.1)
+    key_points = key_points_op.set_keypoints(key_points, pcd_points, d=0)
 
     # def stages #####################################
     stage = deque(["prepre", "pre", "first", "post"])
@@ -422,8 +422,9 @@ def _main(args):
 
 
 @timer
-def main(args):
-    args.output_dir = os.path.join(args.output_dir, run_date)
+def main(angle, args):
+    angle_str = visualizer.nparray_to_string(angle, DIGITS)
+    args.output_dir = os.path.join(_output_dir, run_date, angle_str)
     os.makedirs(args.output_dir, exist_ok=True)
     result = {
         "metadata": {
@@ -443,7 +444,7 @@ def main(args):
             args.exp_n = exp_n
             args.task_name = task_name
             try:
-                done, save_dir, instruction = _main(args)
+                done, save_dir, instruction = _main(angle, args)
             except Exception as e:
                 visualizer.print_note_section(note=[f"Error in task {task_name}", f"Error: {e}"])
                 continue
@@ -527,4 +528,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     visualizer.print_note_section(note="RDT Demo")
-    main(args)
+
+    angle_start = -180
+    angle_end = 180
+    angle_delta = 30
+    angles = np.array([[r, p, y] for r in range(angle_start, angle_end, angle_delta) for p in range(angle_start, angle_end, angle_delta) for y in range(angle_start, angle_end, angle_delta)])
+
+    _output_dir = args.output_dir
+
+    for angle in angles:
+        main(angle, args)  # 传入每个欧拉角

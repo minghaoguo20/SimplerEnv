@@ -28,5 +28,11 @@
     "google_robot_pick_object": {
         "quaternion": null,
         "post_position": null
+    },
+    "google_robot_open_drawer": {
+        "quaternion": [0, 1, 0, 0],
+        "quaternion1": [0.993, 0.000, 0.000, 0.120],
+        "angle": [0, 180, 180],
+        "post_position": null
     }
 }
